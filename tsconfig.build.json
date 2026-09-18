@@ -1,0 +1,12 @@
+{
+  // Configuración de compilación: solo src, para que dist/ no lleve las pruebas
+  // y `node dist/main.js` sea la ruta real. El tsconfig.json de la raíz incluye
+  // también tests/ porque ahí sí queremos que el typecheck los revise.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "tests"]
+}

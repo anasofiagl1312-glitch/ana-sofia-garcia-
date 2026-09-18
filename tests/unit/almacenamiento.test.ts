@@ -32,7 +32,8 @@ describe('cifrado en reposo (RNF-06)', () => {
 
   it('un archivo alterado no se descifra en silencio, falla', () => {
     const cifrado = cifrar(Buffer.from('contenido'), LLAVE);
-    cifrado[cifrado.length - 1] ^= 0xff;
+    const ultimo = cifrado.length - 1;
+    cifrado.writeUInt8(cifrado.readUInt8(ultimo) ^ 0xff, ultimo);
     expect(() => descifrar(cifrado, LLAVE)).toThrow();
   });
 
