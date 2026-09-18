@@ -1,0 +1,40 @@
+{
+  "name": "huella",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Asistente que agenda, recuerda y documenta el cuidado de una mascota.",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "worker": "tsx src/jobs/worker-main.ts",
+    "migrate": "tsx src/db/migrate.ts",
+    "seed": "tsx src/db/seed.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.1",
+    "@fastify/multipart": "^9.0.1",
+    "dotenv": "^16.4.7",
+    "fastify": "^5.2.0",
+    "luxon": "^3.5.0",
+    "pdfkit": "^0.15.1",
+    "pg": "^8.13.1",
+    "pg-boss": "^10.1.6",
+    "pino": "^9.5.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/luxon": "^3.4.2",
+    "@types/node": "^22.10.2",
+    "@types/pdfkit": "^0.13.9",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^5.0.1"
+  }
+}
