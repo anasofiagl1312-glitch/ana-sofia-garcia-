@@ -33,6 +33,8 @@ export const OPCIONES_POR_DEFECTO = 3;
 /** Cuantos dias antes y despues de la fecha estimada se buscan huecos. */
 export const DIAS_ANTES = 3;
 export const DIAS_DESPUES = 10;
+/** Hasta donde se ensancha la busqueda cuando faltan opciones. */
+export const DIAS_DESPUES_MAXIMO = 120;
 
 /**
  * Franja que se ofrece cuando la usuaria todavia no configuro preferencias.
@@ -64,9 +66,23 @@ export function opcionesDeHorario(
   const cantidad = opciones.cantidad ?? OPCIONES_POR_DEFECTO;
   const objetivo = aFechaLocal(fechaObjetivo, zona);
 
+  // El copy de T-21 tiene tres renglones numerados, asi que hacen falta tres
+  // opciones siempre. Si la ventana normal no alcanza -- porque la usuaria solo
+  // marco un dia de la semana, o porque `noAntesDe` recorta el principio -- se
+  // ensancha hacia adelante hasta juntarlas. Ofrecerle una fecha mas lejana es
+  // mejor que mandarle un mensaje con un renglon vacio.
+  let diasDespues = DIAS_DESPUES;
+  let resultado = buscar(diasDespues);
+  while (resultado.length < cantidad && diasDespues < DIAS_DESPUES_MAXIMO) {
+    diasDespues += DIAS_DESPUES;
+    resultado = buscar(diasDespues);
+  }
+  return resultado;
+
+  function buscar(hastaDias: number): OpcionHorario[] {
   const candidatas: Array<OpcionHorario & { prioridad: number; distancia: number }> = [];
 
-  for (let delta = -DIAS_ANTES; delta <= DIAS_DESPUES; delta++) {
+  for (let delta = -DIAS_ANTES; delta <= hastaDias; delta++) {
     const fecha = sumarDias(objetivo, delta);
     if (opciones.noAntesDe && fecha < opciones.noAntesDe) continue;
 
@@ -101,12 +117,13 @@ export function opcionesDeHorario(
   // Una sola opcion por dia: ofrecerle dos franjas del mismo martes confunde
   // mas de lo que ayuda.
   const vistas = new Set<FechaLocal>();
-  const resultado: OpcionHorario[] = [];
+  const elegidas: OpcionHorario[] = [];
   for (const c of candidatas) {
     if (vistas.has(c.fecha)) continue;
     vistas.add(c.fecha);
-    resultado.push({ fecha: c.fecha, diaSemana: c.diaSemana, horaInicio: c.horaInicio, horaFin: c.horaFin });
-    if (resultado.length === cantidad) break;
+    elegidas.push({ fecha: c.fecha, diaSemana: c.diaSemana, horaInicio: c.horaInicio, horaFin: c.horaFin });
+    if (elegidas.length === cantidad) break;
   }
-  return resultado;
+  return elegidas;
+  }
 }

@@ -13,13 +13,18 @@
 import type pg from 'pg';
 
 export interface NumerosDelPiloto {
-  /** Todas las que alguna vez se dieron de alta. */
+  /** Todas las que se registraron, hayan aceptado o no. */
   personasInvitadas: number;
-  /** Las que siguen dentro: en prueba o pagando. */
+  /** Las que aceptaron: registradas menos las que dijeron que no. */
+  aceptaron: number;
+  /** Las que siguen dentro: en prueba, pagando o con un cobro pendiente. */
   clientasActivas: number;
   /** Las que ya pagan. */
   pagando: number;
-  /** Activas entre invitadas, en porcentaje. `null` si todavía no hay nadie. */
+  /**
+   * Aceptaron entre registradas, en porcentaje. `null` cuando no hay ninguna
+   * registrada todavía, que no es lo mismo que 0 %.
+   */
   tasaAceptacion: number | null;
   citasAgendadas: number;
   citasCumplidas: number;
@@ -36,6 +41,16 @@ export interface NumerosDelPiloto {
  */
 const ACTIVAS = ['prueba', 'activa', 'pago_pendiente'];
 
+/**
+ * El estado de quien no quiso.
+ *
+ * Existe para que la tasa de aceptación signifique algo. Antes solo se
+ * persistía a quien aceptaba, así que el denominador y el numerador eran el
+ * mismo conjunto y la tasa daba 100 % por construcción: medía cuántas filas
+ * había, no cuántas personas dijeron que sí.
+ */
+const NO_ACEPTO = 'no_acepto';
+
 export async function numerosDelPiloto(
   pool: pg.Pool,
   opciones: { fecha?: string } = {},
@@ -44,6 +59,7 @@ export async function numerosDelPiloto(
 
   const { rows } = await pool.query<{
     invitadas: number;
+    aceptaron: number;
     activas: number;
     pagando: number;
     agendadas: number;
@@ -51,8 +67,16 @@ export async function numerosDelPiloto(
     pendientes: number;
   }>(
     `SELECT
+       -- Denominador: TODAS las registradas, hayan aceptado o no.
        (SELECT count(*)::int FROM usuaria
          WHERE anonimizada_en IS NULL) AS invitadas,
+
+       -- Numerador: las que no dijeron que no. Una que aceptó y después se dio
+       -- de baja sigue contando como aceptación; lo que se mide es cuántas
+       -- dijeron que sí, no cuántas siguen.
+       (SELECT count(*)::int FROM usuaria
+         WHERE anonimizada_en IS NULL
+           AND estado <> $3::estado_suscripcion) AS aceptaron,
 
        (SELECT count(*)::int FROM usuaria
          WHERE anonimizada_en IS NULL
@@ -78,18 +102,19 @@ export async function numerosDelPiloto(
            AND c.estado NOT IN ('cancelada', 'reagendada')
            AND r.estado IN ('programado', 'fallido')
            AND (r.programado_para AT TIME ZONE u.zona_horaria)::date <= $1::date) AS pendientes`,
-    [fecha, ACTIVAS],
+    [fecha, ACTIVAS, NO_ACEPTO],
   );
 
   const r = rows[0]!;
 
   return {
     personasInvitadas: r.invitadas,
+    aceptaron: r.aceptaron,
     clientasActivas: r.activas,
     pagando: r.pagando,
-    // Sin nadie invitada la tasa no es 0 %, es que no hay tasa. Devolver 0
+    // Sin nadie registrada la tasa no es 0 %, es que no hay tasa. Devolver 0
     // haría ver el piloto como un fracaso el primer día.
-    tasaAceptacion: r.invitadas === 0 ? null : Math.round((r.activas / r.invitadas) * 100),
+    tasaAceptacion: r.invitadas === 0 ? null : Math.round((r.aceptaron / r.invitadas) * 100),
     citasAgendadas: r.agendadas,
     citasCumplidas: r.cumplidas,
     pendientesDeHoy: r.pendientes,

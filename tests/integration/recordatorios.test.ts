@@ -117,7 +117,7 @@ describe('barrido y envio', () => {
     const fila = (await recordatoriosDe(pool, citaId)).find((f) => f.momento === 't_7')!;
     expect(fila.estado).toBe('enviado');
     expect(fila.contenido_enviado).toBe(mensaje.texto);
-    expect(fila.plantilla).toBe('huella_recordatorio_v1');
+    expect(fila.plantilla).toBe('huella_recordatorio_7_v2');
     expect(fila.id_externo).toBe(mensaje.idExterno);
     expect(fila.retraso_segundos).toBe(0);
   });
@@ -129,7 +129,7 @@ describe('barrido y envio', () => {
     const reloj = relojEn(instanteDelMomento('t_7', { iniciaEn, zona: CDMX, horaAvisoDia: '08:00' }));
     await barrerRecordatorios({ pool, whatsapp, reloj });
 
-    expect(whatsapp.enviados[0]!.texto).toContain('Costo por confirmar');
+    expect(whatsapp.enviados[0]!.texto).toContain('💲 por confirmar');
   });
 
   it('no manda dos veces el mismo aviso', async () => {
@@ -180,7 +180,9 @@ describe('barrido y envio', () => {
 
     // Solo sale el cierre, que es posterior a la cita.
     expect(whatsapp.enviados).toHaveLength(1);
-    expect(whatsapp.enviados[0]!.plantilla).toBe('huella_cierre_v1');
+    // Es una cita sin rutina, así que le toca la variante que no promete un
+    // siguiente ciclo que no existe.
+    expect(whatsapp.enviados[0]!.plantilla).toBe('huella_cierre_puntual_v2');
     expect(resumen.cancelados).toBe(3);
 
     const casos = await casosAbiertos(pool);

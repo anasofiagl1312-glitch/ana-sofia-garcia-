@@ -52,6 +52,7 @@ export interface AvisoDelDia {
  * significa «Preguntar fecha» y no tiene por qué aprender «T−21».
  */
 export const ETIQUETA_MOMENTO: Record<MomentoRecordatorio, string> = {
+  confirmacion: 'Confirmar la cita',
   t_21: 'Preguntar fecha',
   t_7: 'Aviso de 7 días',
   t_3: 'Aviso de 3 días',
@@ -63,7 +64,7 @@ export const ETIQUETA_MOMENTO: Record<MomentoRecordatorio, string> = {
  * Los momentos que la referencia pinta en gris en vez de en camello, por ser
  * los de tono positivo.
  */
-export const MOMENTOS_EN_GRIS: readonly MomentoRecordatorio[] = ['t_0'];
+export const MOMENTOS_EN_GRIS: readonly MomentoRecordatorio[] = ['confirmacion', 't_0'];
 
 /**
  * Arma el enlace de WhatsApp con el mensaje puesto.

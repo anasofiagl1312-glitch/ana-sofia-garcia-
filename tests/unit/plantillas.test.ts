@@ -24,16 +24,28 @@ describe('plantillas de WhatsApp (seccion 08)', () => {
     }
   });
 
-  it('el catalogo cubre los cuatro avisos, la confirmacion, el cierre y el refuerzo', () => {
+  it('el catálogo cubre cada momento y cada variante de dato opcional', () => {
     expect(Object.keys(PLANTILLAS).sort()).toEqual([
-      'huella_aviso_dia_indicaciones_v1',
-      'huella_aviso_dia_v1',
-      'huella_cierre_v1',
-      'huella_confirmacion_v1',
-      'huella_disponibilidad_v1',
-      'huella_recordatorio_v1',
+      'huella_aviso_dia_indicaciones_v2',
+      'huella_aviso_dia_v2',
+      'huella_cierre_puntual_sin_nombre_v2',
+      'huella_cierre_puntual_v2',
+      'huella_cierre_sin_nombre_v2',
+      'huella_cierre_v2',
+      'huella_confirmacion_v2',
+      'huella_disponibilidad_sin_nombre_v2',
+      'huella_disponibilidad_v2',
+      'huella_recordatorio_3_v2',
+      'huella_recordatorio_7_v2',
       'huella_refuerzo_v1',
     ]);
+  });
+
+  it('ninguna repite el mismo número de variable', () => {
+    for (const p of TODAS) {
+      const usados = variablesDe(p.cuerpo);
+      expect(new Set(usados).size, p.nombre).toBe(usados.length);
+    }
   });
 
   it('el payload de alta lleva un ejemplo por variable', () => {
@@ -80,18 +92,30 @@ describe('validarPlantilla', () => {
 });
 
 describe('renderizar', () => {
-  const p = PLANTILLAS.huella_recordatorio_v1;
+  const p = PLANTILLAS.huella_recordatorio_7_v2;
+  const valores = ['el baño', 'Lola', 'jueves 22 de octubre', '11:00', 'Petco Polanco', '$450'];
 
   it('sustituye en el orden declarado', () => {
-    const texto = renderizar(p, ['el jueves a las 11:00', 'baño', 'Lola', 'Petco', 'Costo estimado: $450']);
-    expect(texto).toContain('Recordatorio: el jueves a las 11:00 tienes el baño de Lola en Petco.');
+    expect(renderizar(p, valores)).toContain('Falta una semana para el baño de Lola.');
   });
 
-  it('rechaza una variable vacia, que Meta rechazaria en el envio', () => {
-    expect(() => renderizar(p, ['a', 'b', 'c', 'd', '   '])).toThrow(PlantillaInvalida);
+  it('rechaza una variable vacía, que Meta rechazaría en el envío', () => {
+    expect(() => renderizar(p, ['a', 'b', 'c', 'd', 'e', '   '])).toThrow(PlantillaInvalida);
   });
 
-  it('rechaza un numero de valores distinto al declarado', () => {
+  it('rechaza un número de valores distinto al declarado', () => {
     expect(() => renderizar(p, ['a', 'b'])).toThrow(PlantillaInvalida);
+  });
+
+  // Ésta es la regla que rompía la versión anterior: la lista de opciones de
+  // T−21 viajaba como un solo parámetro con saltos de línea, y Meta la habría
+  // rechazado en el envío. Por eso ahora son tres variables.
+  it('rechaza un valor con saltos de línea', () => {
+    expect(() => renderizar(p, [...valores.slice(0, 5), '1) lunes\n2) martes'])).toThrow(/saltos de linea/i);
+  });
+
+  it('rechaza un valor con tabuladores o con cuatro espacios seguidos', () => {
+    expect(() => renderizar(p, [...valores.slice(0, 5), 'a\tb'])).toThrow(PlantillaInvalida);
+    expect(() => renderizar(p, [...valores.slice(0, 5), 'a    b'])).toThrow(PlantillaInvalida);
   });
 });

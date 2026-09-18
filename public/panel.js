@@ -25,10 +25,12 @@
 
   var credencial = null;
   var tab = "hoy";
-  var datos = { avisos: null, clientas: null, citas: null, numeros: null };
+  var datos = { avisos: null, clientas: null, citas: null, numeros: null, rutinas: null };
+  var detalles = {};      // expediente de cada clienta, ya traído
   var abiertas = {};      // acordeones de clientas abiertos
   var forms = {};         // formularios visibles
   var cargando = false;
+  var avisoPendiente = null;   // se pinta una vez en el siguiente render
 
   var app = document.getElementById("app");
   var panel = document.getElementById("panel");
@@ -175,7 +177,10 @@
     var peticion =
       tab === "hoy" ? pedir("/avisos-hoy").then(function (d) { datos.avisos = d; }) :
       tab === "clientas" ? pedir("/clientas").then(function (d) { datos.clientas = d.clientas; }) :
-      tab === "citas" ? pedir("/citas").then(function (d) { datos.citas = d.citas; }) :
+      tab === "citas" ? Promise.all([
+        pedir("/citas").then(function (d) { datos.citas = d.citas; }),
+        pedir("/rutinas").then(function (d) { datos.rutinas = d.rutinas; })
+      ]) :
       pedir("/numeros").then(function (d) { datos.numeros = d; });
 
     peticion.catch(function (e) {
@@ -197,6 +202,14 @@
     if (tab === "clientas") return renderClientas();
     if (tab === "citas") return renderCitas();
     return renderNumeros();
+  }
+
+  /** Saca el aviso que quedó de la última acción, si lo hay. Se pinta una vez. */
+  function bannerPendiente() {
+    if (!avisoPendiente) return "";
+    var html = '<div class="banner mal">' + esc(avisoPendiente) + "</div>";
+    avisoPendiente = null;
+    return html;
   }
 
   function datosDeLaPestana() {
@@ -317,17 +330,7 @@
         '<button class="btn quiet" data-accion="toggle" data-arg="' + esc(c.id) + '">' +
           (abierta ? "Cerrar" : "Ver") + "</button></div>";
 
-      if (abierta) {
-        html += '<div class="sub">';
-        if (!c.mascotas.length) {
-          html += '<div class="item-s">Sin mascotas registradas.</div>';
-        }
-        c.mascotas.forEach(function (m) {
-          html += '<div class="item"><div class="item-t">' + esc(m) + "</div></div>";
-        });
-        html += '<div class="item-s" style="margin-top:10px">Zona horaria: ' + esc(c.zonaHoraria) + "</div>";
-        html += "</div>";
-      }
+      if (abierta) html += expediente(c.id);
       html += "</div>";
     });
 
@@ -338,8 +341,76 @@
     prueba: "Prueba",
     activa: "Pagando",
     pago_pendiente: "Pago pendiente",
-    cancelada: "Baja"
+    cancelada: "Baja",
+    no_acepto: "No aceptó"
   };
+
+  /**
+   * Expediente de una clienta: sus mascotas con lo que el negocio necesita
+   * saber, sus rutinas y sus últimas tres citas.
+   *
+   * Se pide sólo al abrir el acordeón. Traerlo para todas al listar sería una
+   * consulta por clienta que casi nadie va a mirar.
+   */
+  function expediente(id) {
+    var d = detalles[id];
+    if (!d) {
+      pedir("/clientas/" + id)
+        .then(function (r) { detalles[id] = r; render(); })
+        .catch(function (e) { detalles[id] = { error: e.message }; render(); });
+      return '<div class="sub"><div class="item-s">Cargando expediente…</div></div>';
+    }
+    if (d.error) return '<div class="sub"><div class="banner mal">' + esc(d.error) + "</div></div>";
+
+    var html = '<div class="sub">';
+
+    html += '<div class="item"><div class="item-t">Mascotas</div>';
+    if (!d.mascotas.length) {
+      html += '<div class="item-s">Sin mascotas registradas.</div>';
+    }
+    d.mascotas.forEach(function (m) {
+      var ficha = [m.especie, m.raza, m.pesoKg ? m.pesoKg + " kg" : ""].filter(Boolean).join(" · ");
+      html += '<div class="item-s" style="margin-top:6px"><b>' + esc(m.nombre) + "</b>" +
+        (ficha ? " · " + esc(ficha) : "") +
+        (m.notasManejo ? '<br><span style="font-style:italic">Manejo: ' + esc(m.notasManejo) + "</span>" : "") +
+        "</div>";
+    });
+    html += "</div>";
+
+    html += '<div class="item"><div class="item-t">Rutinas</div>';
+    if (!d.rutinas.length) {
+      html += '<div class="item-s">Sin rutinas.</div>';
+    }
+    d.rutinas.forEach(function (r) {
+      html += '<div class="item-s" style="margin-top:6px">↳ <b>' + esc(r.servicio) + "</b> de " +
+        esc(r.mascota) + " en " + esc(r.proveedor) +
+        " · " + esc(r.periodicidad) +
+        " · " + esc(dinero(r.costoReferencia)) +
+        " · toca " + esc(corto(r.proximaFechaEstimada)) +
+        (r.activa ? "" : ' <span class="pill gris">Pausada</span>') + "</div>";
+    });
+    html += "</div>";
+
+    html += '<div class="item"><div class="item-t">Últimas citas</div>';
+    if (!d.ultimasCitas.length) {
+      html += '<div class="item-s">Todavía no hay citas.</div>';
+    }
+    d.ultimasCitas.forEach(function (ct) {
+      var costo = ct.costoReal != null
+        ? dinero(ct.costoReal) + " pagados"
+        : dinero(ct.costoConfirmado);
+      html += '<div class="item-s" style="margin-top:6px">' +
+        esc(fechaHora(ct.fecha, d.clienta.zonaHoraria)) + " · " + esc(ct.servicio) + " de " + esc(ct.mascota) +
+        "<br>" + esc(ct.proveedor) + " · " + esc(ESTADO_CITA[ct.estado] || ct.estado) + " · " + esc(costo) +
+        "</div>";
+    });
+    html += "</div>";
+
+    html += '<div class="item-s" style="margin-top:10px">Zona horaria: ' + esc(d.clienta.zonaHoraria) +
+      " · aviso del día a las " + esc(String(d.clienta.horaAvisoDia).slice(0, 5)) + "</div>";
+
+    return html + "</div>";
+  }
 
   /**
    * Alta de clienta, mascota y rutina en una sola captura.
@@ -360,6 +431,12 @@
       '<div><label for="c-hora">Hora del aviso del día</label>' +
       '<input id="c-hora" name="horaAvisoDia" type="time" value="08:00"></div>' +
       "</div>" +
+      '<label for="c-estado">¿Aceptó?</label>' +
+      '<select id="c-estado" name="estado">' +
+      '<option value="prueba">Sí, la doy de alta</option>' +
+      '<option value="no_acepto">No aceptó</option>' +
+      "</select>" +
+      '<span class="pista">Registrar a quien dijo que no es lo que hace que la tasa de aceptación signifique algo.</span>' +
 
       "<h4>Mascota</h4>" +
       '<div class="f-grid">' +
@@ -411,16 +488,28 @@
 
   function renderCitas() {
     var cts = datos.citas;
-    if (!cts) { app.innerHTML = '<div class="empty"><p>Cargando…</p></div>'; return; }
+    var rutinas = datos.rutinas;
+    if (!cts || !rutinas) { app.innerHTML = '<div class="empty"><p>Cargando…</p></div>'; return; }
 
-    if (!cts.length) {
-      app.innerHTML = '<div class="empty"><h2>Sin citas próximas</h2>' +
-        "<p>Primero da de alta una clienta con su mascota y su rutina. Después el sistema le va a preguntar la fecha 21 días antes.</p>" +
+    var encabezado = forms.cita
+      ? formCita(rutinas)
+      : '<div class="row" style="margin-bottom:16px">' +
+        '<button class="btn primary" data-accion="form" data-arg="cita"' +
+        (rutinas.length ? "" : " disabled") + ">+ Nueva cita</button></div>";
+
+    if (!rutinas.length) {
+      app.innerHTML = encabezado + '<div class="empty"><h2>Sin rutinas todavía</h2>' +
+        "<p>Primero da de alta una clienta con su mascota y su rutina. Después podrás agendarle citas.</p>" +
         '<button class="btn primary" data-accion="irClientas">Dar de alta una clienta</button></div>';
       return;
     }
 
-    app.innerHTML = cts.map(function (ct) {
+    if (!cts.length) {
+      app.innerHTML = encabezado + '<div class="empty"><p>Todavía no hay citas agendadas.</p></div>';
+      return;
+    }
+
+    app.innerHTML = bannerPendiente() + encabezado + cts.map(function (ct) {
       var cumplida = ct.estado === "cumplida";
       var mensajeNegocio = msgNegocio(ct);
       var costo = ct.costo_real != null ? ct.costo_real : ct.costo_confirmado;
@@ -443,6 +532,37 @@
           '<button class="btn quiet" data-accion="cumplida" data-arg="' + esc(ct.id) + '">Marcar cumplida</button>') +
         "</div></div>";
     }).join("");
+  }
+
+  /**
+   * Alta de cita: la operadora ya habló con el negocio y lo captura.
+   *
+   * El costo se pide como «lo que te dijeron» y no como estimado: es el dato
+   * que el agente de la sección 05 tiene que arrancarle al proveedor, y sin él
+   * la cita queda marcada «por confirmar» y así se le dice a la clienta.
+   */
+  function formCita(rutinas) {
+    var opciones = rutinas.map(function (r) {
+      return '<option value="' + esc(r.id) + '" data-costo="' + esc(r.costoReferencia == null ? "" : r.costoReferencia) +
+        '" data-fecha="' + esc(r.proximaFechaEstimada) + '">' + esc(r.etiqueta) + "</option>";
+    }).join("");
+
+    return '<form class="f" data-form="cita"><h3>Nueva cita</h3>' +
+      '<label for="ct-rutina">¿De quién?</label>' +
+      '<select id="ct-rutina" name="rutinaId" required>' + opciones + "</select>" +
+      '<div class="f-grid">' +
+      '<div><label for="ct-fecha">Fecha</label>' +
+      '<input id="ct-fecha" name="fecha" type="date" required></div>' +
+      '<div><label for="ct-hora">Hora</label>' +
+      '<input id="ct-hora" name="hora" type="time" value="11:00" required></div>' +
+      "</div>" +
+      '<label for="ct-costo">Costo que te dijeron</label>' +
+      '<input id="ct-costo" name="costoInformado" type="number" min="0" placeholder="450">' +
+      '<span class="pista">Si el negocio no lo dio, déjalo vacío: la cita queda «por confirmar» y así se le avisa a la clienta.</span>' +
+      '<label for="ct-ind">Indicaciones del negocio</label>' +
+      '<input id="ct-ind" name="indicaciones" placeholder="Llegar en ayuno, traer transportadora">' +
+      '<div class="row"><button class="btn primary" type="submit">Guardar</button>' +
+      '<button class="btn quiet" type="button" data-accion="form" data-arg="cita">Cancelar</button></div></form>';
   }
 
   var ESTADO_CITA = {
@@ -564,7 +684,8 @@
     if (a === "form") {
       forms[arg] = !forms[arg];
       render();
-      if (forms[arg]) llenarServicios();
+      if (forms[arg] && arg === "clienta") llenarServicios();
+      if (forms[arg] && arg === "cita") prellenarCita();
       return;
     }
 
@@ -624,6 +745,30 @@
     } catch (e) { toast("Cópialo a mano"); }
   }
 
+  /**
+   * Prellena fecha y costo con lo que la rutina ya sabe.
+   *
+   * La operadora casi siempre agenda para la fecha estimada y al costo de
+   * referencia; que vengan puestos le ahorra teclear lo que el sistema ya
+   * conoce, y puede cambiarlos.
+   */
+  function prellenarCita() {
+    var sel = document.getElementById("ct-rutina");
+    if (!sel) return;
+
+    function aplicar() {
+      var op = sel.options[sel.selectedIndex];
+      if (!op) return;
+      var fecha = document.getElementById("ct-fecha");
+      var costo = document.getElementById("ct-costo");
+      if (fecha && op.dataset.fecha) fecha.value = op.dataset.fecha;
+      if (costo) costo.value = op.dataset.costo || "";
+    }
+
+    sel.addEventListener("change", aplicar);
+    aplicar();
+  }
+
   /** El catálogo de servicios sale de la base (RF-06), no de una lista fija. */
   function llenarServicios() {
     var sel = document.getElementById("r-servicio");
@@ -639,7 +784,16 @@
       .catch(function () { sel.innerHTML = '<option value="bano">Baño</option>'; });
   }
 
+  var ETIQUETA_OMITIDO = {
+    confirmacion: "la confirmación",
+    t_7: "el de 7 días",
+    t_3: "el de 3 días",
+    t_0: "el del día"
+  };
+
   app.addEventListener("submit", function (e) {
+    if (e.target.dataset.form === "cita") return guardarCita(e);
+
     e.preventDefault();
     var f = e.target;
     if (f.dataset.form !== "alta") return;
@@ -653,7 +807,8 @@
       clienta: {
         nombre: d.nombre,
         celular: d.celular,
-        horaAvisoDia: d.horaAvisoDia || undefined
+        horaAvisoDia: d.horaAvisoDia || undefined,
+        estado: d.estado || "prueba"
       },
       mascota: {
         nombre: d.mNombre,
@@ -685,10 +840,12 @@
     pedir("/clientas", { method: "POST", body: cuerpo })
       .then(function (r) {
         forms.clienta = false;
-        abiertas[r.usuariaId] = true;
-        toast(r.proveedorYaExistia
-          ? "Clienta guardada. El negocio ya estaba en el catálogo."
-          : "Clienta guardada");
+        if (r.estado !== "no_acepto") abiertas[r.usuariaId] = true;
+        toast(r.estado === "no_acepto"
+          ? "Registrada como que no aceptó"
+          : r.proveedorYaExistia
+            ? "Clienta guardada. El negocio ya estaba en el catálogo."
+            : "Clienta guardada");
         cargar();
       })
       .catch(function (err) {
@@ -700,6 +857,50 @@
         boton.removeAttribute("aria-busy");
       });
   });
+
+  function guardarCita(e) {
+    e.preventDefault();
+    var f = e.target;
+    var d = {};
+    Array.prototype.forEach.call(f.elements, function (el) { if (el.name) d[el.name] = el.value.trim(); });
+
+    var boton = f.querySelector("button[type=submit]");
+    boton.disabled = true;
+    boton.setAttribute("aria-busy", "true");
+
+    pedir("/citas", {
+      method: "POST",
+      body: {
+        rutinaId: d.rutinaId,
+        fecha: d.fecha,
+        hora: d.hora,
+        costoInformado: d.costoInformado ? Number(d.costoInformado) : null,
+        indicaciones: d.indicaciones || null
+      }
+    })
+      .then(function (r) {
+        forms.cita = false;
+        // Si algún aviso quedó fuera por haber vencido ya, se dice aquí y
+        // ahora: la operadora tiene que saberlo antes de colgar el teléfono,
+        // no cuando la clienta reclame que nunca le avisaron.
+        if (r.omitidosPorVencidos && r.omitidosPorVencidos.length) {
+          var cuales = r.omitidosPorVencidos.map(function (m) { return ETIQUETA_OMITIDO[m] || m; });
+          avisoPendiente = "Cita guardada, pero " + cuales.join(" y ") +
+            " no se programaron: su momento ya pasó.";
+        } else {
+          toast("Cita guardada. Ya salió la confirmación.");
+        }
+        cargar();
+      })
+      .catch(function (err) {
+        var caja = document.createElement("div");
+        caja.className = "banner mal";
+        caja.textContent = err.message;
+        f.insertBefore(caja, f.firstChild);
+        boton.disabled = false;
+        boton.removeAttribute("aria-busy");
+      });
+  }
 
   // ------------------------------------------------------------ arranque
 

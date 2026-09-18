@@ -21,12 +21,15 @@ import type pg from 'pg';
 import type { Ejecutor } from '../../db/pool.js';
 import { enTransaccion } from '../../db/pool.js';
 import {
+  type MomentoConOffset,
   type MomentoRecordatorio,
   programaDeRecordatorios,
   recalcularPendientes,
+  siguienteFechaEstimada,
 } from '../../domain/agenda.js';
+import { fechaLocalDe } from '../../domain/tiempo.js';
 import { aceptaRecordatorios, type EstadoCita } from '../../domain/citas.js';
-import { type DatosAviso, type OpcionHorario, redactarAviso } from '../mensajes/contenido.js';
+import { type DatosAviso, type OpcionHorario, mesDe, redactarAviso } from '../mensajes/contenido.js';
 import type { CanalWhatsApp } from '../../channels/whatsapp/index.js';
 import { ErrorEnvio } from '../../channels/whatsapp/index.js';
 import { type PreferenciaAgenda, opcionesDeHorario } from '../agendamiento/preferencias.js';
@@ -67,7 +70,7 @@ interface FilaCitaParaProgramar {
   inicia_en: Date;
   zona_horaria: string;
   hora_aviso_dia: string;
-  desactivados: MomentoRecordatorio[] | null;
+  desactivados: MomentoConOffset[] | null;
 }
 
 const SQL_CITA_PARA_PROGRAMAR = `
@@ -92,7 +95,7 @@ const SQL_CITA_PARA_PROGRAMAR = `
 export async function programarRecordatoriosDeCita(
   ejecutor: Ejecutor,
   citaId: string,
-  opciones: { ahora?: Date; momentos?: readonly MomentoRecordatorio[] } = {},
+  opciones: { ahora?: Date; momentos?: readonly MomentoConOffset[] } = {},
 ): Promise<number> {
   const { rows } = await ejecutor.query<FilaCitaParaProgramar>(SQL_CITA_PARA_PROGRAMAR, [citaId]);
   const cita = rows[0];
@@ -135,7 +138,7 @@ export async function reprogramarRecordatorios(
 ): Promise<number> {
   const ahora = opciones.ahora ?? new Date();
 
-  const { rows: enviadas } = await ejecutor.query<{ momento: MomentoRecordatorio }>(
+  const { rows: enviadas } = await ejecutor.query<{ momento: MomentoConOffset }>(
     `SELECT momento FROM recordatorio
       WHERE cita_id = $1 AND estado IN ('enviado','entregado','leido')`,
     [citaId],
@@ -200,6 +203,7 @@ export interface FilaRecordatorioVencido {
   estado_cita: EstadoCita;
   inicia_en: Date;
   servicio: string;
+  articulo_servicio: 'el' | 'la' | null;
   mascota: string;
   proveedor: string;
   direccion: string | null;
@@ -207,6 +211,10 @@ export interface FilaRecordatorioVencido {
   indicaciones: string | null;
   proveedor_id: string;
   preferencias: PreferenciaAgenda[] | null;
+  usuaria: string | null;
+  rutina_id: string | null;
+  frecuencia_cantidad: number | null;
+  frecuencia_unidad: 'semanas' | 'meses' | null;
 }
 
 /**
@@ -222,6 +230,7 @@ export const SQL_AVISO_COMPLETO = `
          u.celular, u.zona_horaria, u.nombre AS usuaria,
          c.estado AS estado_cita, c.inicia_en, c.costo_confirmado, c.indicaciones,
          ts.nombre AS servicio,
+         ts.articulo AS articulo_servicio,
          m.nombre  AS mascota,
          p.id      AS proveedor_id,
          CASE WHEN p.sucursal IS NULL OR p.sucursal = '' THEN p.negocio
@@ -253,9 +262,11 @@ async function reclamarVencidos(pool: pg.Pool, ahora: Date, limite: number): Pro
   return enTransaccion(pool, async (cliente) => {
     const { rows } = await cliente.query<FilaRecordatorioVencido>(
       `SELECT r.id, r.cita_id, r.usuaria_id, r.momento, r.programado_para, r.intentos,
-              u.celular, u.zona_horaria,
+              u.celular, u.zona_horaria, u.nombre AS usuaria,
+              c.rutina_id, ru.frecuencia_cantidad, ru.frecuencia_unidad,
               c.estado AS estado_cita, c.inicia_en, c.costo_confirmado, c.indicaciones,
               ts.nombre AS servicio,
+              ts.articulo AS articulo_servicio,
               m.nombre  AS mascota,
               p.id      AS proveedor_id,
               CASE WHEN p.sucursal IS NULL OR p.sucursal = '' THEN p.negocio
@@ -275,6 +286,7 @@ async function reclamarVencidos(pool: pg.Pool, ahora: Date, limite: number): Pro
          JOIN mascota m       ON m.id = c.mascota_id
          JOIN proveedor p     ON p.id = c.proveedor_id
          JOIN tipo_servicio ts ON ts.codigo = c.tipo_servicio
+         LEFT JOIN rutina ru   ON ru.id = c.rutina_id
         WHERE r.estado IN ('programado','fallido')
           AND COALESCE(r.proximo_intento_en, r.programado_para) <= $1
           AND u.anonimizada_en IS NULL
@@ -386,14 +398,31 @@ export async function barrerRecordatorios(
 export function datosDeAviso(fila: FilaRecordatorioVencido): DatosAviso {
   return {
     servicio: fila.servicio,
+    articuloServicio: fila.articulo_servicio,
     mascota: fila.mascota,
+    nombrePila: fila.usuaria,
     iniciaEn: fila.inicia_en,
     zona: fila.zona_horaria,
     proveedor: fila.proveedor,
     direccion: fila.direccion,
     costo: fila.costo_confirmado,
     indicaciones: fila.momento === 't_0' ? fila.indicaciones : null,
+    mesSiguiente: mesDelSiguienteCiclo(fila),
   };
+}
+
+/**
+ * Mes en el que toca el siguiente servicio, para el cierre.
+ *
+ * Se cuenta desde el dia en que la cita realmente ocurrio, igual que
+ * `cerrarCita`, para que el mes que se le promete a la usuaria sea el mismo que
+ * el sistema va a programar. Una cita puntual no tiene siguiente y devuelve
+ * null, que es lo que elige la variante del cierre sin promesa.
+ */
+function mesDelSiguienteCiclo(fila: FilaRecordatorioVencido): string | null {
+  if (!fila.rutina_id || !fila.frecuencia_cantidad || !fila.frecuencia_unidad) return null;
+  const fechaCita = fechaLocalDe(fila.inicia_en, fila.zona_horaria);
+  return mesDe(siguienteFechaEstimada(fechaCita, fila.frecuencia_cantidad, fila.frecuencia_unidad));
 }
 
 /**

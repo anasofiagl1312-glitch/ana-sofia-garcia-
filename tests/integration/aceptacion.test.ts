@@ -108,7 +108,7 @@ describe('Criterio 2 — "Los cuatro recordatorios salen en su momento, con los 
 
     await barrerRecordatorios({ pool, whatsapp, reloj });
     expect(whatsapp.enviados).toHaveLength(1);
-    expect(whatsapp.enviados[0]!.plantilla).toBe('huella_disponibilidad_v1');
+    expect(whatsapp.enviados[0]!.plantilla).toBe('huella_disponibilidad_v2');
     // Las opciones salen de sus preferencias (RF-03): primero sus dos días de
     // prioridad 1 (jueves) y luego el de prioridad 2 (sábado).
     expect(whatsapp.enviados[0]!.texto).toContain('1) jueves 22 de octubre, de 10:00 a 13:00');
@@ -351,7 +351,7 @@ describe('Criterio 6 — "Toda cita tiene evidencia y un costo registrado, o est
     expect(revision[0]!.evidencias).toBeGreaterThan(0);
   });
 
-  it('sin precio, el aviso dice "Costo por confirmar" en vez de callarlo', async () => {
+  it('sin precio, el aviso dice «por confirmar» en vez de callarlo', async () => {
     const usuaria = await crearUsuaria(pool, { horaAvisoDia: '08:00' });
     const mascotaId = await crearMascota(pool, usuaria.id);
     const proveedorId = await crearProveedor(pool);
@@ -369,7 +369,9 @@ describe('Criterio 6 — "Toda cita tiene evidencia y un costo registrado, o est
 
     const reloj = relojEn(instanteDelMomento('t_7', { iniciaEn, zona: CDMX, horaAvisoDia: '08:00' }));
     await barrerRecordatorios({ pool, whatsapp, reloj });
-    expect(whatsapp.enviados[0]!.texto).toContain('Costo por confirmar');
+    // El copy pone el monto detrás del 💲; sin precio confirmado, ahí va
+    // «por confirmar», y la línea nunca se omite.
+    expect(whatsapp.enviados[0]!.texto).toContain('💲 por confirmar');
   });
 });
 

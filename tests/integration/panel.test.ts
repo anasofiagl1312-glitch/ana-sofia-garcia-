@@ -14,6 +14,7 @@ import {
   CDMX,
   crearMascota,
   crearProveedor,
+  crearRutina,
   crearUsuaria,
   limpiar,
   prepararBase,
@@ -25,7 +26,7 @@ import { AlmacenEnMemoria, llaveDesdeBase64 } from '../../src/modules/almacenami
 import { PasarelaFalsa } from '../../src/modules/suscripcion/servicio.js';
 import { numerosDelPiloto } from '../../src/modules/panel/numeros.js';
 import { programarRecordatoriosDeCita } from '../../src/modules/recordatorios/servicio.js';
-import { instanteDesdeLocal } from '../../src/domain/tiempo.js';
+import { horaLocalDe, instanteDesdeLocal } from '../../src/domain/tiempo.js';
 import { randomBytes } from 'node:crypto';
 
 let pool: pg.Pool;
@@ -42,6 +43,7 @@ const RUTAS_DEL_PANEL = [
   '/panel/api/suscripciones',
   '/panel/api/salud-envios',
   '/panel/api/proveedores-compartidos',
+  '/panel/api/rutinas',
 ] as const;
 
 beforeAll(async () => {
@@ -149,10 +151,59 @@ describe('/numeros', () => {
 
     const n = await numerosDelPiloto(pool);
     expect(n.personasInvitadas).toBe(3);
-    // La de baja cuenta como invitada pero no como activa.
+    // La de baja cuenta como invitada y como aceptación —en su momento dijo que
+    // sí— pero ya no como activa.
     expect(n.clientasActivas).toBe(2);
     expect(n.pagando).toBe(1);
-    expect(n.tasaAceptacion).toBe(67);
+    expect(n.aceptaron).toBe(3);
+    expect(n.tasaAceptacion).toBe(100);
+  });
+
+  it('la tasa de aceptación cuenta a quien dijo que no', async () => {
+    for (let i = 0; i < 2; i++) {
+      const u = await crearUsuaria(pool);
+      await pool.query(`UPDATE usuaria SET estado = 'prueba' WHERE id = $1`, [u.id]);
+    }
+    for (let i = 0; i < 3; i++) {
+      const u = await crearUsuaria(pool);
+      await pool.query(`UPDATE usuaria SET estado = 'no_acepto' WHERE id = $1`, [u.id]);
+    }
+
+    const n = await numerosDelPiloto(pool);
+    expect(n.personasInvitadas).toBe(5);
+    expect(n.aceptaron).toBe(2);
+    // Quien dijo que no NO es una clienta activa.
+    expect(n.clientasActivas).toBe(2);
+    // 2 de 5. Antes daba 100 % porque solo se guardaba a quien aceptaba: el
+    // numerador y el denominador eran el mismo conjunto.
+    expect(n.tasaAceptacion).toBe(40);
+  });
+
+  it('el alta puede registrar a quien dijo que no, y no le abre periodo de prueba', async () => {
+    const r = await pedir('/panel/api/clientas', {
+      method: 'POST',
+      payload: {
+        clienta: { nombre: 'Rosa Méndez', celular: '55 7777 0001', estado: 'no_acepto' },
+        mascota: { nombre: 'Tobi', especie: 'perro' },
+        proveedor: { negocio: 'Veterinaria del Parque', telefono: '55 3333 0001' },
+        rutina: { tipoServicio: 'bano', frecuenciaCantidad: 1, frecuenciaUnidad: 'meses' },
+      },
+    });
+    expect(r.statusCode).toBe(201);
+    expect(JSON.parse(r.body).estado).toBe('no_acepto');
+
+    const { rows } = await pool.query<{ estado: string; suscripciones: number }>(
+      `SELECT estado, (SELECT count(*)::int FROM suscripcion s WHERE s.usuaria_id = u.id) AS suscripciones
+         FROM usuaria u WHERE u.id = $1`,
+      [JSON.parse(r.body).usuariaId],
+    );
+    expect(rows[0]!.estado).toBe('no_acepto');
+    expect(rows[0]!.suscripciones).toBe(0);
+
+    const n = await numerosDelPiloto(pool);
+    expect(n.personasInvitadas).toBe(1);
+    expect(n.aceptaron).toBe(0);
+    expect(n.tasaAceptacion).toBe(0);
   });
 
   it('no cuenta a quien pidió el borrado de sus datos', async () => {
@@ -366,5 +417,291 @@ describe('pestaña Hoy', () => {
       method: 'POST',
       payload: { texto: aviso.texto },
     })).statusCode).toBe(409);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Alta de citas desde el panel
+// ---------------------------------------------------------------------------
+
+describe('alta de cita', () => {
+  /** Deja una clienta con mascota, proveedor y rutina, y devuelve el id de la rutina. */
+  async function conRutina(opciones: { proximaFecha?: string; horaAvisoDia?: string } = {}) {
+    const usuaria = await crearUsuaria(pool, {
+      nombre: 'Ana',
+      horaAvisoDia: opciones.horaAvisoDia ?? '08:00',
+    });
+    const mascotaId = await crearMascota(pool, usuaria.id, { nombre: 'Lola' });
+    const proveedorId = await crearProveedor(pool);
+    const rutinaId = await crearRutina(pool, {
+      usuariaId: usuaria.id,
+      mascotaId,
+      proveedorId,
+      proximaFecha: opciones.proximaFecha ?? '2036-10-22',
+    });
+    return { usuaria, mascotaId, proveedorId, rutinaId };
+  }
+
+  async function momentosDe(citaId: string): Promise<string[]> {
+    const { rows } = await pool.query<{ momento: string }>(
+      `SELECT momento FROM recordatorio WHERE cita_id = $1 ORDER BY programado_para`,
+      [citaId],
+    );
+    return rows.map((r) => r.momento);
+  }
+
+  it('crea la cita confirmada y materializa los cuatro avisos', async () => {
+    const { rutinaId } = await conRutina();
+
+    const r = await pedir('/panel/api/citas', {
+      method: 'POST',
+      payload: { rutinaId, fecha: '2036-10-22', hora: '11:00', costoInformado: 450 },
+    });
+    expect(r.statusCode).toBe(201);
+
+    const creada = JSON.parse(r.body);
+    expect(creada.programados.sort()).toEqual(['confirmacion', 't_0', 't_3', 't_7']);
+    expect(creada.omitidosPorVencidos).toEqual([]);
+
+    const { rows } = await pool.query<{ estado: string; costo_confirmado: number }>(
+      `SELECT estado, costo_confirmado FROM cita WHERE id = $1`,
+      [creada.citaId],
+    );
+    expect(rows[0]!.estado).toBe('confirmada');
+    expect(rows[0]!.costo_confirmado).toBe(450);
+    expect((await momentosDe(creada.citaId)).sort()).toEqual(['confirmacion', 't_0', 't_3', 't_7']);
+  });
+
+  it('calcula los avisos sobre la hora local de pared, no restando horas', async () => {
+    // Tijuana observa horario de verano; el cambio cae entre el T−7 y la cita.
+    const usuaria = await crearUsuaria(pool, { zona: 'America/Tijuana', horaAvisoDia: '08:00' });
+    const mascotaId = await crearMascota(pool, usuaria.id);
+    const proveedorId = await crearProveedor(pool);
+    const rutinaId = await crearRutina(pool, {
+      usuariaId: usuaria.id,
+      mascotaId,
+      proveedorId,
+      proximaFecha: '2036-11-05',
+    });
+
+    const r = await pedir('/panel/api/citas', {
+      method: 'POST',
+      payload: { rutinaId, fecha: '2036-11-05', hora: '11:00' },
+    });
+    const { citaId } = JSON.parse(r.body);
+
+    const { rows } = await pool.query<{ momento: string; programado_para: Date }>(
+      `SELECT momento, programado_para FROM recordatorio WHERE cita_id = $1 AND momento <> 'confirmacion'`,
+      [citaId],
+    );
+
+    // Cada aviso cae a su hora local de pared, del lado del cambio que le toca.
+    for (const fila of rows) {
+      const local = horaLocalDe(fila.programado_para, 'America/Tijuana');
+      expect(local, fila.momento).toBe(fila.momento === 't_0' ? '08:00' : '10:00');
+    }
+  });
+
+  it('omite los avisos cuyo momento ya pasó, en vez de programarlos en el pasado', async () => {
+    // Se captura una cita para dentro de cinco días: T−7 ya no cabe.
+    const enCincoDias = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000);
+    const fecha = enCincoDias.toISOString().slice(0, 10);
+    const { rutinaId } = await conRutina({ proximaFecha: fecha });
+
+    const r = await pedir('/panel/api/citas', {
+      method: 'POST',
+      payload: { rutinaId, fecha, hora: '23:00' },
+    });
+    expect(r.statusCode).toBe(201);
+
+    const creada = JSON.parse(r.body);
+    expect(creada.omitidosPorVencidos).toContain('t_7');
+    expect(creada.programados).toContain('confirmacion');
+    expect(creada.programados).toContain('t_3');
+    expect(creada.programados).toContain('t_0');
+
+    // Y nada quedó programado hacia atrás.
+    const { rows } = await pool.query<{ cuantos: number }>(
+      `SELECT count(*)::int AS cuantos FROM recordatorio
+        WHERE cita_id = $1 AND momento <> 'confirmacion' AND programado_para < now()`,
+      [creada.citaId],
+    );
+    expect(rows[0]!.cuantos).toBe(0);
+  });
+
+  it('una cita que ya pasó no programa nada, ni siquiera la confirmación', async () => {
+    const { rutinaId } = await conRutina({ proximaFecha: '2020-01-10' });
+
+    const creada = JSON.parse(
+      (await pedir('/panel/api/citas', {
+        method: 'POST',
+        payload: { rutinaId, fecha: '2020-01-10', hora: '11:00' },
+      })).body,
+    );
+
+    expect(creada.programados).toEqual([]);
+    expect(creada.omitidosPorVencidos.sort()).toEqual(['confirmacion', 't_0', 't_3', 't_7']);
+    expect(await momentosDe(creada.citaId)).toEqual([]);
+  });
+
+  it('sin costo informado la cita queda «por confirmar» y el aviso lo dice', async () => {
+    const { rutinaId } = await conRutina();
+    // La rutina del escenario trae costo de referencia; se quita para la prueba.
+    await pool.query(`UPDATE rutina SET costo_referencia = NULL WHERE id = $1`, [rutinaId]);
+
+    const creada = JSON.parse(
+      (await pedir('/panel/api/citas', {
+        method: 'POST',
+        payload: { rutinaId, fecha: '2036-10-22', hora: '11:00' },
+      })).body,
+    );
+
+    const { rows } = await pool.query<{ costo_confirmado: number | null }>(
+      `SELECT costo_confirmado FROM cita WHERE id = $1`,
+      [creada.citaId],
+    );
+    expect(rows[0]!.costo_confirmado).toBeNull();
+
+    const avisos = JSON.parse((await pedir('/panel/api/avisos-hoy')).body);
+    const confirmacion = avisos.avisos.find((a: { momento: string }) => a.momento === 'confirmacion');
+    expect(confirmacion.texto).toContain('💲 por confirmar');
+  });
+
+  it('marca la rutina para que el disparo de T−21 no vuelva a preguntar', async () => {
+    const { rutinaId } = await conRutina();
+    await pedir('/panel/api/citas', {
+      method: 'POST',
+      payload: { rutinaId, fecha: '2036-10-22', hora: '11:00' },
+    });
+
+    const { rows } = await pool.query<{ cita_generada_para: string | null; proxima_fecha_estimada: string }>(
+      `SELECT cita_generada_para, proxima_fecha_estimada FROM rutina WHERE id = $1`,
+      [rutinaId],
+    );
+    expect(rows[0]!.cita_generada_para).toBe(rows[0]!.proxima_fecha_estimada);
+  });
+
+  it('rechaza una rutina que no existe y explica qué falta', async () => {
+    const inexistente = await pedir('/panel/api/citas', {
+      method: 'POST',
+      payload: { rutinaId: '00000000-0000-0000-0000-000000000000', fecha: '2036-10-22', hora: '11:00' },
+    });
+    expect(inexistente.statusCode).toBe(404);
+
+    const { rutinaId } = await conRutina();
+    const sinFecha = await pedir('/panel/api/citas', {
+      method: 'POST',
+      payload: { rutinaId, hora: '11:00' },
+    });
+    expect(sinFecha.statusCode).toBe(400);
+    expect(JSON.parse(sinFecha.body).detalles[0].mensaje).toBe('Falta la fecha.');
+  });
+
+  it('las rutinas para elegir traen de quién es cada una', async () => {
+    await conRutina();
+    const { rutinas } = JSON.parse((await pedir('/panel/api/rutinas')).body);
+    expect(rutinas).toHaveLength(1);
+    expect(rutinas[0].etiqueta).toBe('Lola · Baño · Ana');
+    expect(rutinas[0].proximaFechaEstimada).toBe('2036-10-22');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Expediente de la clienta
+// ---------------------------------------------------------------------------
+
+describe('detalle de clienta', () => {
+  it('trae mascotas con su ficha, rutinas y las últimas tres citas', async () => {
+    const alta = {
+      clienta: { nombre: 'María Fernanda Ruiz', celular: '55 4433 2211' },
+      mascota: {
+        nombre: 'Canela',
+        especie: 'perro',
+        raza: 'Schnauzer',
+        pesoKg: 8,
+        notasManejo: 'Tranquila, piel sensible',
+      },
+      proveedor: { negocio: 'Petco', sucursal: 'Polanco', telefono: '55 1122 3344' },
+      rutina: {
+        tipoServicio: 'bano',
+        frecuenciaCantidad: 1,
+        frecuenciaUnidad: 'meses',
+        costoReferencia: 450,
+        proximaFechaEstimada: '2036-11-20',
+      },
+    };
+    const creada = JSON.parse((await pedir('/panel/api/clientas', { method: 'POST', payload: alta })).body);
+
+    // Cuatro citas, para comprobar que sólo devuelve las tres más recientes.
+    for (const dia of ['2026-01-10', '2026-02-10', '2026-03-10', '2026-04-10']) {
+      await pool.query(
+        `INSERT INTO cita (usuaria_id, mascota_id, proveedor_id, tipo_servicio, estado, inicia_en,
+                           costo_confirmado, costo_real)
+         VALUES ($1,$2,$3,'bano','cumplida',$4,450,470)`,
+        [creada.usuariaId, creada.mascotaId, creada.proveedorId, instanteDesdeLocal(dia, '11:00', CDMX)],
+      );
+    }
+
+    const r = await pedir(`/panel/api/clientas/${creada.usuariaId}`);
+    expect(r.statusCode).toBe(200);
+    const d = JSON.parse(r.body);
+
+    expect(d.clienta.nombre).toBe('María Fernanda Ruiz');
+    expect(d.clienta.celularVerificado).toBe(false);
+
+    expect(d.mascotas).toHaveLength(1);
+    expect(d.mascotas[0]).toMatchObject({
+      nombre: 'Canela',
+      raza: 'Schnauzer',
+      pesoKg: 8,
+      notasManejo: 'Tranquila, piel sensible',
+    });
+
+    expect(d.rutinas).toHaveLength(1);
+    expect(d.rutinas[0]).toMatchObject({
+      servicio: 'Baño',
+      proveedor: 'Petco Polanco',
+      costoReferencia: 450,
+      periodicidad: 'cada mes',
+      proximaFechaEstimada: '2036-11-20',
+      activa: true,
+    });
+
+    // Las tres más recientes, de la más nueva a la más vieja.
+    expect(d.ultimasCitas).toHaveLength(3);
+    expect(d.ultimasCitas[0].costoReal).toBe(470);
+    expect(d.ultimasCitas[0].estado).toBe('cumplida');
+    const fechas = d.ultimasCitas.map((c: { fecha: string }) => c.fecha);
+    expect([...fechas].sort().reverse()).toEqual(fechas);
+  });
+
+  it('dice «cada 3 semanas» cuando la rutina no es mensual', async () => {
+    const usuaria = await crearUsuaria(pool);
+    const mascotaId = await crearMascota(pool, usuaria.id);
+    const proveedorId = await crearProveedor(pool);
+    await crearRutina(pool, {
+      usuariaId: usuaria.id,
+      mascotaId,
+      proveedorId,
+      cantidad: 3,
+      unidad: 'semanas',
+      proximaFecha: '2036-10-22',
+    });
+
+    const d = JSON.parse((await pedir(`/panel/api/clientas/${usuaria.id}`)).body);
+    expect(d.rutinas[0].periodicidad).toBe('cada 3 semanas');
+  });
+
+  it('una clienta que no existe devuelve 404', async () => {
+    const r = await pedir('/panel/api/clientas/00000000-0000-0000-0000-000000000000');
+    expect(r.statusCode).toBe(404);
+    expect(JSON.parse(r.body).error).toBe('no_encontrado');
+  });
+
+  it('no devuelve el expediente de quien pidió el borrado de sus datos', async () => {
+    const usuaria = await crearUsuaria(pool);
+    await pool.query(`UPDATE usuaria SET anonimizada_en = now() WHERE id = $1`, [usuaria.id]);
+    expect((await pedir(`/panel/api/clientas/${usuaria.id}`)).statusCode).toBe(404);
   });
 });

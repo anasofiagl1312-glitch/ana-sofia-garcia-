@@ -23,7 +23,18 @@ import { registrarProveedorDeUsuaria } from '../proveedores/servicio.js';
 import { iniciarSuscripcion, type Pasarela } from '../suscripcion/servicio.js';
 
 export interface DatosAltaClienta {
-  clienta: { nombre: string; celular: string; zonaHoraria?: string; horaAvisoDia?: string };
+  clienta: {
+    nombre: string;
+    celular: string;
+    zonaHoraria?: string;
+    horaAvisoDia?: string;
+    /**
+     * `no_acepto` registra a quien se le ofreció el producto y dijo que no.
+     * Sin este registro la tasa de aceptación no significa nada: dividiría a
+     * las que aceptaron entre ellas mismas.
+     */
+    estado?: 'prueba' | 'no_acepto';
+  };
   mascota: {
     nombre: string;
     especie: 'perro' | 'gato' | 'otra';
@@ -59,6 +70,7 @@ export interface ResultadoAlta {
   proximaFechaEstimada: string;
   /** Verdadero si el negocio ya estaba en el catálogo de otra clienta. */
   proveedorYaExistia: boolean;
+  estado: 'prueba' | 'no_acepto';
 }
 
 export class CelularYaRegistrado extends Error {
@@ -89,6 +101,8 @@ export async function altaDeClienta(
     datos.rutina.proximaFechaEstimada ??
     sumarFrecuencia(hoy, datos.rutina.frecuenciaCantidad, datos.rutina.frecuenciaUnidad);
 
+  const estadoInicial = datos.clienta.estado ?? 'prueba';
+
   const resultado = await enTransaccion(pool, async (cliente) => {
     const { rows: existentes } = await cliente.query(
       `SELECT 1 FROM usuaria WHERE celular = $1 AND anonimizada_en IS NULL`,
@@ -98,9 +112,9 @@ export async function altaDeClienta(
 
     const { rows: usuarias } = await cliente.query<{ id: string }>(
       `INSERT INTO usuaria (celular, nombre, zona_horaria, hora_aviso_dia, estado)
-       VALUES ($1,$2,$3,COALESCE($4::time, '08:00'),'prueba')
+       VALUES ($1,$2,$3,COALESCE($4::time, '08:00'),$5::estado_suscripcion)
        RETURNING id`,
-      [celular, datos.clienta.nombre.trim(), zona, datos.clienta.horaAvisoDia ?? null],
+      [celular, datos.clienta.nombre.trim(), zona, datos.clienta.horaAvisoDia ?? null, estadoInicial],
     );
     const usuariaId = usuarias[0]!.id;
 
@@ -170,18 +184,22 @@ export async function altaDeClienta(
     };
   });
 
-  // La suscripción va fuera de la transacción porque habla con la pasarela, y
-  // una llamada de red no debe tener abierta una transacción de base de datos.
-  // Si falla, la clienta ya quedó dada de alta y el periodo de prueba se puede
-  // iniciar después desde el panel.
-  await iniciarSuscripcion(pool, resultado.usuariaId, {
-    diasPrueba: opciones.diasPrueba,
-    precioMensual: opciones.precioMensual,
-    pasarela: opciones.pasarela,
-    ...(opciones.ahora ? { ahora: opciones.ahora } : {}),
-  });
+  // A quien dijo que no no se le abre periodo de prueba: queda registrada para
+  // que la tasa de aceptación la cuente, y nada más.
+  if (estadoInicial !== 'no_acepto') {
+    // La suscripción va fuera de la transacción porque habla con la pasarela, y
+    // una llamada de red no debe tener abierta una transacción de base de datos.
+    // Si falla, la clienta ya quedó dada de alta y el periodo de prueba se puede
+    // iniciar después desde el panel.
+    await iniciarSuscripcion(pool, resultado.usuariaId, {
+      diasPrueba: opciones.diasPrueba,
+      precioMensual: opciones.precioMensual,
+      pasarela: opciones.pasarela,
+      ...(opciones.ahora ? { ahora: opciones.ahora } : {}),
+    });
+  }
 
-  return resultado;
+  return { ...resultado, estado: estadoInicial };
 }
 
 export interface ClientaEnLista {
@@ -225,4 +243,151 @@ export async function listarClientas(pool: pg.Pool): Promise<ClientaEnLista[]> {
     proximaFecha: r.proxima_fecha,
     creadaEn: r.creada_en,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Detalle de una clienta
+// ---------------------------------------------------------------------------
+
+export interface DetalleDeClienta {
+  clienta: {
+    id: string;
+    nombre: string | null;
+    celular: string;
+    celularVerificado: boolean;
+    estado: string;
+    zonaHoraria: string;
+    horaAvisoDia: string;
+    creadaEn: Date;
+  };
+  mascotas: Array<{
+    id: string;
+    nombre: string;
+    especie: string;
+    raza: string | null;
+    pesoKg: number | null;
+    notasManejo: string | null;
+  }>;
+  rutinas: Array<{
+    id: string;
+    mascota: string;
+    servicio: string;
+    proveedor: string;
+    costoReferencia: number | null;
+    periodicidad: string;
+    proximaFechaEstimada: string;
+    activa: boolean;
+  }>;
+  /** Las tres más recientes. Es lo que se necesita para entender el caso. */
+  ultimasCitas: Array<{
+    id: string;
+    fecha: Date;
+    estado: string;
+    servicio: string;
+    mascota: string;
+    proveedor: string;
+    costoConfirmado: number | null;
+    costoReal: number | null;
+  }>;
+}
+
+export class ClientaNoEncontrada extends Error {
+  constructor(id: string) {
+    super(`No se encontró la clienta ${id}.`);
+    this.name = 'ClientaNoEncontrada';
+  }
+}
+
+/** "cada mes", "cada 3 semanas". */
+function textoPeriodicidad(cantidad: number, unidad: string): string {
+  if (cantidad === 1) return unidad === 'meses' ? 'cada mes' : 'cada semana';
+  return `cada ${cantidad} ${unidad}`;
+}
+
+export async function detalleDeClienta(pool: pg.Pool, usuariaId: string): Promise<DetalleDeClienta> {
+  const { rows: clientas } = await pool.query(
+    `SELECT id, nombre, celular, zona_horaria, hora_aviso_dia, estado, creada_en,
+            celular_verificado_en IS NOT NULL AS celular_verificado
+       FROM usuaria WHERE id = $1 AND anonimizada_en IS NULL`,
+    [usuariaId],
+  );
+  const c = clientas[0];
+  if (!c) throw new ClientaNoEncontrada(usuariaId);
+
+  const { rows: mascotas } = await pool.query(
+    `SELECT id, nombre, especie, raza, peso_kg, notas_manejo
+       FROM mascota WHERE usuaria_id = $1 AND archivada_en IS NULL ORDER BY creada_en`,
+    [usuariaId],
+  );
+
+  const { rows: rutinas } = await pool.query(
+    `SELECT r.id, r.costo_referencia, r.frecuencia_cantidad, r.frecuencia_unidad,
+            r.proxima_fecha_estimada, r.activa,
+            m.nombre AS mascota, ts.nombre AS servicio,
+            CASE WHEN p.sucursal IS NULL OR p.sucursal = '' THEN p.negocio
+                 ELSE p.negocio || ' ' || p.sucursal END AS proveedor
+       FROM rutina r
+       JOIN mascota m        ON m.id = r.mascota_id
+       JOIN proveedor p      ON p.id = r.proveedor_id
+       JOIN tipo_servicio ts ON ts.codigo = r.tipo_servicio
+      WHERE r.usuaria_id = $1
+      ORDER BY r.proxima_fecha_estimada`,
+    [usuariaId],
+  );
+
+  const { rows: citas } = await pool.query(
+    `SELECT c.id, c.inicia_en, c.estado, c.costo_confirmado, c.costo_real,
+            ts.nombre AS servicio, m.nombre AS mascota,
+            CASE WHEN p.sucursal IS NULL OR p.sucursal = '' THEN p.negocio
+                 ELSE p.negocio || ' ' || p.sucursal END AS proveedor
+       FROM cita c
+       JOIN mascota m        ON m.id = c.mascota_id
+       JOIN proveedor p      ON p.id = c.proveedor_id
+       JOIN tipo_servicio ts ON ts.codigo = c.tipo_servicio
+      WHERE c.usuaria_id = $1
+      ORDER BY c.inicia_en DESC
+      LIMIT 3`,
+    [usuariaId],
+  );
+
+  return {
+    clienta: {
+      id: c.id,
+      nombre: c.nombre,
+      celular: c.celular,
+      celularVerificado: c.celular_verificado,
+      estado: c.estado,
+      zonaHoraria: c.zona_horaria,
+      horaAvisoDia: c.hora_aviso_dia,
+      creadaEn: c.creada_en,
+    },
+    mascotas: mascotas.map((m) => ({
+      id: m.id,
+      nombre: m.nombre,
+      especie: m.especie,
+      raza: m.raza,
+      pesoKg: m.peso_kg,
+      notasManejo: m.notas_manejo,
+    })),
+    rutinas: rutinas.map((r) => ({
+      id: r.id,
+      mascota: r.mascota,
+      servicio: r.servicio,
+      proveedor: r.proveedor,
+      costoReferencia: r.costo_referencia,
+      periodicidad: textoPeriodicidad(r.frecuencia_cantidad, r.frecuencia_unidad),
+      proximaFechaEstimada: r.proxima_fecha_estimada,
+      activa: r.activa,
+    })),
+    ultimasCitas: citas.map((ct) => ({
+      id: ct.id,
+      fecha: ct.inicia_en,
+      estado: ct.estado,
+      servicio: ct.servicio,
+      mascota: ct.mascota,
+      proveedor: ct.proveedor,
+      costoConfirmado: ct.costo_confirmado,
+      costoReal: ct.costo_real,
+    })),
+  };
 }

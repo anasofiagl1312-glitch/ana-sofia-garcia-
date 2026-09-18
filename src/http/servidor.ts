@@ -25,7 +25,8 @@ import { type Operador, SinPermiso } from '../modules/panel/servicio.js';
 import { MascotaNoEncontrada } from '../modules/carnet/servicio.js';
 import { TransicionInvalida } from '../domain/citas.js';
 import { TelefonoInvalido } from '../lib/telefono.js';
-import { CelularYaRegistrado } from '../modules/panel/alta.js';
+import { CelularYaRegistrado, ClientaNoEncontrada } from '../modules/panel/alta.js';
+import { RutinaNoEncontrada } from '../modules/panel/citas.js';
 import { AvisoIncompleto } from '../modules/mensajes/contenido.js';
 import { registrarRutasAuth } from './rutas/auth.js';
 import { registrarRutasMascotas } from './rutas/mascotas.js';
@@ -151,6 +152,8 @@ function mapearError(error: Error & { statusCode?: number }): number {
   if (error instanceof DemasiadasSolicitudes) return 429;
   if (error instanceof SinPermiso) return 403;
   if (error instanceof MascotaNoEncontrada) return 404;
+  if (error instanceof ClientaNoEncontrada) return 404;
+  if (error instanceof RutinaNoEncontrada) return 404;
   return 500;
 }
 
@@ -164,6 +167,8 @@ function nombreDeError(error: Error): string {
     DemasiadasSolicitudes: 'demasiadas_solicitudes',
     SinPermiso: 'sin_permiso',
     MascotaNoEncontrada: 'no_encontrado',
+    ClientaNoEncontrada: 'no_encontrado',
+    RutinaNoEncontrada: 'no_encontrado',
     AvisoIncompleto: 'aviso_incompleto',
   };
   return nombres[error.name] ?? 'error';

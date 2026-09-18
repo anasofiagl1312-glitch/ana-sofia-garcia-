@@ -16,10 +16,21 @@ import {
   sumarFrecuencia,
 } from './tiempo.js';
 
-export type MomentoRecordatorio = 't_21' | 't_7' | 't_3' | 't_0' | 'cierre';
+/**
+ * Los momentos de un aviso.
+ *
+ * `confirmacion` sale en cuanto el proveedor aparta, no a un numero de dias de
+ * la cita, asi que no tiene desplazamiento y queda fuera de los calculos de
+ * este modulo. El tipo `MomentoConOffset` es el que sirve para programar; que
+ * sean dos tipos y no uno evita que alguien pida el instante de la
+ * confirmacion y reciba una fecha inventada.
+ */
+export type MomentoRecordatorio = 'confirmacion' | 't_21' | 't_7' | 't_3' | 't_0' | 'cierre';
+
+export type MomentoConOffset = Exclude<MomentoRecordatorio, 'confirmacion'>;
 
 /** Dias antes de la cita a los que corresponde cada momento. */
-export const OFFSET_DIAS: Record<MomentoRecordatorio, number> = {
+export const OFFSET_DIAS: Record<MomentoConOffset, number> = {
   t_21: -21,
   t_7: -7,
   t_3: -3,
@@ -49,14 +60,14 @@ export const MINUTOS_MINIMOS_ANTES_DE_LA_CITA = 60;
  * registra el costo real y programa el siguiente ciclo. Apagar cualquiera de
  * esos dos no es "menos mensajes", es romper el flujo de la seccion 03.
  */
-export const MOMENTOS_DESACTIVABLES: readonly MomentoRecordatorio[] = ['t_7', 't_3', 't_0'];
+export const MOMENTOS_DESACTIVABLES: readonly MomentoConOffset[] = ['t_7', 't_3', 't_0'];
 
 export function esDesactivable(momento: MomentoRecordatorio): boolean {
-  return MOMENTOS_DESACTIVABLES.includes(momento);
+  return (MOMENTOS_DESACTIVABLES as readonly string[]).includes(momento);
 }
 
 export interface RecordatorioProgramado {
-  momento: MomentoRecordatorio;
+  momento: MomentoConOffset;
   /** Instante UTC en el que debe salir el aviso. */
   programadoPara: Date;
 }
@@ -68,7 +79,7 @@ export interface OpcionesProgramacion {
   /** RF-13: hora local del aviso del dia, por usuaria. */
   horaAvisoDia: HoraLocal;
   /** Momentos que la usuaria apago (RF-13). */
-  desactivados?: readonly MomentoRecordatorio[];
+  desactivados?: readonly MomentoConOffset[];
   /**
    * Instante de referencia. Los avisos que ya quedaron atras no se programan:
    * una cita agendada con cinco dias de anticipacion no puede tener un aviso
@@ -76,10 +87,10 @@ export interface OpcionesProgramacion {
    */
   ahora?: Date;
   /** Momentos a considerar. Por omision, los cuatro avisos mas el cierre. */
-  momentos?: readonly MomentoRecordatorio[];
+  momentos?: readonly MomentoConOffset[];
 }
 
-const TODOS_LOS_MOMENTOS: readonly MomentoRecordatorio[] = ['t_21', 't_7', 't_3', 't_0', 'cierre'];
+const TODOS_LOS_MOMENTOS: readonly MomentoConOffset[] = ['t_21', 't_7', 't_3', 't_0', 'cierre'];
 
 /**
  * Calcula el instante UTC de un momento concreto respecto de una cita.
@@ -90,7 +101,7 @@ const TODOS_LOS_MOMENTOS: readonly MomentoRecordatorio[] = ['t_21', 't_7', 't_3'
  * corre el aviso (RNF-02).
  */
 export function instanteDelMomento(
-  momento: MomentoRecordatorio,
+  momento: MomentoConOffset,
   opciones: Pick<OpcionesProgramacion, 'iniciaEn' | 'zona' | 'horaAvisoDia'>,
 ): Date {
   const { iniciaEn, zona, horaAvisoDia } = opciones;
@@ -162,7 +173,7 @@ export function siguienteFechaEstimada(
  * la fecha nueva.
  */
 export function recalcularPendientes(
-  yaEnviados: readonly MomentoRecordatorio[],
+  yaEnviados: readonly MomentoConOffset[],
   opciones: OpcionesProgramacion,
 ): RecordatorioProgramado[] {
   const enviados = new Set(yaEnviados);

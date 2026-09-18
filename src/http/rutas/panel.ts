@@ -18,7 +18,8 @@ import {
 import { proveedoresCompartidos } from '../../modules/proveedores/servicio.js';
 import { borrarDatosDeUsuaria, exportarDatos } from '../../modules/privacidad/servicio.js';
 import { conBitacora } from '../../modules/panel/servicio.js';
-import { altaDeClienta, listarClientas } from '../../modules/panel/alta.js';
+import { altaDeClienta, detalleDeClienta, listarClientas } from '../../modules/panel/alta.js';
+import { crearCitaDesdePanel, rutinasParaElegir } from '../../modules/panel/citas.js';
 import { avisosDelDia, marcarEnviadoAMano } from '../../modules/panel/avisos.js';
 import { numerosDelPiloto } from '../../modules/panel/numeros.js';
 import { cerrarCita } from '../../modules/agendamiento/servicio.js';
@@ -60,12 +61,27 @@ async function autenticarOperador(s: Servicios, peticion: FastifyRequest): Promi
   return { id: usuario.id, nombre: usuario.nombre, rol: usuario.rol };
 }
 
+const esquemaNuevaCita = z.object({
+  // `required_error` no es redundante: sin él, un campo que no llega produce
+  // "Required", que es lo que la operadora vería en pantalla.
+  rutinaId: z.string({ required_error: 'Elige de quién es la cita.' }).uuid('Elige de quién es la cita.'),
+  fecha: z
+    .string({ required_error: 'Falta la fecha.' })
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Falta la fecha.'),
+  hora: z
+    .string({ required_error: 'Falta la hora.' })
+    .regex(/^\d{2}:\d{2}$/, 'Falta la hora.'),
+  costoInformado: z.number().nonnegative().nullish(),
+  indicaciones: z.string().trim().max(500).nullish(),
+});
+
 const esquemaAlta = z.object({
   clienta: z.object({
     nombre: z.string().trim().min(1, 'Falta el nombre de la clienta.').max(80),
     celular: z.string().trim().min(8, 'Falta el celular.'),
     zonaHoraria: z.string().optional(),
     horaAvisoDia: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+    estado: z.enum(['prueba', 'no_acepto']).optional(),
   }),
   mascota: z.object({
     nombre: z.string().trim().min(1, 'Falta el nombre de la mascota.').max(60),
@@ -124,6 +140,49 @@ export async function registrarRutasPanel(app: FastifyInstance, s: Servicios): P
           return { fecha, citas: await citasDelDia(s.pool, peticion.operador!, fecha) };
         }
         return { fecha: null, citas: await citasProximas(s.pool, peticion.operador!) };
+      });
+
+      /**
+       * Alta de una cita: la operadora ya habló con el negocio y la apartó.
+       *
+       * Devuelve qué avisos quedaron programados y cuáles se omitieron por
+       * haber vencido ya, para que el panel lo diga en pantalla.
+       */
+      panel.post('/citas', async (peticion, respuesta) => {
+        const datos = esquemaNuevaCita.parse(peticion.body);
+
+        const resultado = await conBitacora(
+          s.pool,
+          peticion.operador!,
+          'resolver_caso',
+          { accion: 'modificacion', entidad: 'cita', detalle: { alta: true, rutinaId: datos.rutinaId } },
+          () => crearCitaDesdePanel(s.pool, datos),
+        );
+
+        return respuesta.status(201).send(resultado);
+      });
+
+      /** Las rutinas activas, para elegir de cuál es la cita. */
+      panel.get('/rutinas', async (peticion) => ({
+        rutinas: await conBitacora(
+          s.pool,
+          peticion.operador!,
+          'ver_expediente',
+          { accion: 'consulta', entidad: 'rutina' },
+          () => rutinasParaElegir(s.pool),
+        ),
+      }));
+
+      /** Expediente de una clienta: sus mascotas, sus rutinas y sus últimas citas. */
+      panel.get('/clientas/:id', async (peticion) => {
+        const { id } = z.object({ id: z.string().uuid() }).parse(peticion.params);
+        return conBitacora(
+          s.pool,
+          peticion.operador!,
+          'ver_expediente',
+          { accion: 'consulta', entidad: 'usuaria', entidadId: id, usuariaAfectadaId: id },
+          () => detalleDeClienta(s.pool, id),
+        );
       });
 
       /** La operadora mandó el aviso a mano desde su WhatsApp (Fase 1). */

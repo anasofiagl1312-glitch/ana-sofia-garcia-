@@ -14,6 +14,7 @@
     "start": "node dist/main.js",
     "worker": "tsx src/jobs/worker-main.ts",
     "migrate": "tsx src/db/migrate.ts",
+    "migrate:test": "NODE_ENV=test tsx src/db/migrate.ts",
     "seed": "tsx src/db/seed.ts",
     "test": "vitest run",
     "verify": "npm run typecheck && npm run test",
