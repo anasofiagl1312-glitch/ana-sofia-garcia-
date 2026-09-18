@@ -10,6 +10,8 @@
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
+import estaticos from '@fastify/static';
+import { fileURLToPath } from 'node:url';
 import type pg from 'pg';
 import { ZodError } from 'zod';
 import type { Config } from '../config/index.js';
@@ -23,6 +25,7 @@ import { type Operador, SinPermiso } from '../modules/panel/servicio.js';
 import { MascotaNoEncontrada } from '../modules/carnet/servicio.js';
 import { TransicionInvalida } from '../domain/citas.js';
 import { TelefonoInvalido } from '../lib/telefono.js';
+import { CelularYaRegistrado } from '../modules/panel/alta.js';
 import { AvisoIncompleto } from '../modules/mensajes/contenido.js';
 import { registrarRutasAuth } from './rutas/auth.js';
 import { registrarRutasMascotas } from './rutas/mascotas.js';
@@ -58,6 +61,28 @@ export async function crearServidor(servicios: Servicios): Promise<FastifyInstan
 
   await app.register(cors, { origin: true });
   await app.register(multipart, { limits: { fileSize: 16 * 1024 * 1024, files: 1 } });
+
+  /**
+   * Interfaz del panel interno, en /panel.
+   *
+   * Son archivos estáticos que hablan con /panel/api. Sin compilador ni paso de
+   * construcción: para un panel que usan tres personas, una cadena de
+   * herramientas de frontend cuesta más de lo que ahorra, y así se puede editar
+   * el CSS en el servidor y recargar.
+   *
+   * `index: false` y sin listado de directorio: se sirve solo lo que existe.
+   */
+  await app.register(estaticos, {
+    root: fileURLToPath(new URL('../../public', import.meta.url)),
+    prefix: '/panel/',
+    index: false,
+    list: false,
+  });
+
+  // /panel y /panel/ entregan la interfaz.
+  for (const ruta of ['/panel', '/panel/']) {
+    app.get(ruta, async (_peticion, respuesta) => respuesta.sendFile('index.html'));
+  }
 
   /**
    * Autenticacion de la usuaria por token de sesion.
@@ -120,6 +145,7 @@ function mapearError(error: Error & { statusCode?: number }): number {
   if (error instanceof TelefonoInvalido) return 400;
   if (error instanceof DocumentoRechazado) return 400;
   if (error instanceof TransicionInvalida) return 409;
+  if (error instanceof CelularYaRegistrado) return 409;
   if (error instanceof AvisoIncompleto) return 500;
   if (error instanceof CodigoInvalido) return 401;
   if (error instanceof DemasiadasSolicitudes) return 429;
@@ -133,6 +159,7 @@ function nombreDeError(error: Error): string {
     TelefonoInvalido: 'telefono_invalido',
     DocumentoRechazado: 'documento_rechazado',
     TransicionInvalida: 'transicion_invalida',
+    CelularYaRegistrado: 'celular_ya_registrado',
     CodigoInvalido: 'codigo_invalido',
     DemasiadasSolicitudes: 'demasiadas_solicitudes',
     SinPermiso: 'sin_permiso',

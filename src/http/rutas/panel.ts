@@ -10,6 +10,7 @@ import {
   bandejaDeExcepciones,
   citasDelDia,
   conversacionesDeCita,
+  citasProximas,
   estadoDeSuscripciones,
   resolverCaso,
   saludDeEnvios,
@@ -17,6 +18,11 @@ import {
 import { proveedoresCompartidos } from '../../modules/proveedores/servicio.js';
 import { borrarDatosDeUsuaria, exportarDatos } from '../../modules/privacidad/servicio.js';
 import { conBitacora } from '../../modules/panel/servicio.js';
+import { altaDeClienta, listarClientas } from '../../modules/panel/alta.js';
+import { avisosDelDia, marcarEnviadoAMano } from '../../modules/panel/avisos.js';
+import { numerosDelPiloto } from '../../modules/panel/numeros.js';
+import { cerrarCita } from '../../modules/agendamiento/servicio.js';
+import { VERSION_AVISO_PRIVACIDAD } from '../servidor.js';
 
 /**
  * Acceso del equipo interno.
@@ -54,6 +60,49 @@ async function autenticarOperador(s: Servicios, peticion: FastifyRequest): Promi
   return { id: usuario.id, nombre: usuario.nombre, rol: usuario.rol };
 }
 
+const esquemaAlta = z.object({
+  clienta: z.object({
+    nombre: z.string().trim().min(1, 'Falta el nombre de la clienta.').max(80),
+    celular: z.string().trim().min(8, 'Falta el celular.'),
+    zonaHoraria: z.string().optional(),
+    horaAvisoDia: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  }),
+  mascota: z.object({
+    nombre: z.string().trim().min(1, 'Falta el nombre de la mascota.').max(60),
+    especie: z.enum(['perro', 'gato', 'otra']),
+    raza: z.string().trim().max(60).nullish(),
+    pesoKg: z.number().positive().max(200).nullish(),
+    sexo: z.enum(['macho', 'hembra', 'desconocido']).optional(),
+    notasManejo: z.string().trim().max(1000).nullish(),
+  }),
+  proveedor: z.object({
+    negocio: z.string().trim().min(1, 'Falta el nombre del negocio.').max(120),
+    sucursal: z.string().trim().max(120).nullish(),
+    direccion: z.string().trim().max(300).nullish(),
+    telefono: z.string().trim().max(30).nullish(),
+    whatsapp: z.string().trim().max(30).nullish(),
+  }),
+  rutina: z.object({
+    tipoServicio: z.string().trim().min(1).max(40),
+    frecuenciaCantidad: z.number().int().positive().max(52),
+    frecuenciaUnidad: z.enum(['semanas', 'meses']),
+    costoReferencia: z.number().nonnegative().nullish(),
+    horaPreferida: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+    proximaFechaEstimada: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  }),
+  preferencias: z
+    .array(
+      z.object({
+        diaSemana: z.number().int().min(1).max(7),
+        horaInicio: z.string().regex(/^\d{2}:\d{2}$/),
+        horaFin: z.string().regex(/^\d{2}:\d{2}$/),
+        prioridad: z.number().int().min(1).default(1),
+      }),
+    )
+    .max(21)
+    .optional(),
+});
+
 export async function registrarRutasPanel(app: FastifyInstance, s: Servicios): Promise<void> {
   app.register(
     async (panel) => {
@@ -61,13 +110,55 @@ export async function registrarRutasPanel(app: FastifyInstance, s: Servicios): P
         peticion.operador = await autenticarOperador(s, peticion);
       });
 
-      /** Citas del dia. */
+      /**
+       * Citas. Con `fecha`, las de ese día; sin ella, las próximas.
+       *
+       * La pestaña de Citas quiere ver lo que viene, no solo lo de hoy.
+       */
       panel.get('/citas', async (peticion) => {
         const { fecha } = z
           .object({ fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() })
           .parse(peticion.query);
-        const dia = fecha ?? new Date().toISOString().slice(0, 10);
-        return { fecha: dia, citas: await citasDelDia(s.pool, peticion.operador!, dia) };
+
+        if (fecha) {
+          return { fecha, citas: await citasDelDia(s.pool, peticion.operador!, fecha) };
+        }
+        return { fecha: null, citas: await citasProximas(s.pool, peticion.operador!) };
+      });
+
+      /** La operadora mandó el aviso a mano desde su WhatsApp (Fase 1). */
+      panel.post('/avisos/:id/enviado', async (peticion) => {
+        const { id } = z.object({ id: z.string().uuid() }).parse(peticion.params);
+        const { texto } = z.object({ texto: z.string().min(1) }).parse(peticion.body);
+
+        const marcado = await conBitacora(
+          s.pool,
+          peticion.operador!,
+          'ver_bandeja',
+          { accion: 'modificacion', entidad: 'recordatorio', entidadId: id },
+          () => marcarEnviadoAMano(s.pool, id, { texto, operadorId: peticion.operador!.id }),
+        );
+
+        if (!marcado) {
+          throw Object.assign(new Error('Ese aviso ya no estaba pendiente.'), { statusCode: 409 });
+        }
+        return { enviado: true };
+      });
+
+      /** Cierre de T+1 desde el panel: la cita se cumplió. */
+      panel.post('/citas/:id/cumplida', async (peticion) => {
+        const { id } = z.object({ id: z.string().uuid() }).parse(peticion.params);
+        const { costoReal } = z
+          .object({ costoReal: z.number().nonnegative().nullish() })
+          .parse(peticion.body ?? {});
+
+        return conBitacora(
+          s.pool,
+          peticion.operador!,
+          'resolver_caso',
+          { accion: 'modificacion', entidad: 'cita', entidadId: id },
+          () => cerrarCita(s.pool, id, { costoReal: costoReal ?? null }),
+        );
       });
 
       /** Bandeja de excepciones (RF-10). */
@@ -126,6 +217,85 @@ export async function registrarRutasPanel(app: FastifyInstance, s: Servicios): P
         );
       });
 
+      /**
+       * Pestaña «Hoy»: los avisos que tocan, con el texto ya redactado.
+       *
+       * En Fase 1 los manda la operadora a mano desde aquí (sección 10), así
+       * que cada uno viene con su enlace de WhatsApp listo.
+       */
+      panel.get('/avisos-hoy', async (peticion) => {
+        const { fecha } = z
+          .object({ fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() })
+          .parse(peticion.query);
+        const dia = fecha ?? new Date().toISOString().slice(0, 10);
+
+        const avisos = await conBitacora(
+          s.pool,
+          peticion.operador!,
+          'ver_expediente',
+          { accion: 'consulta', entidad: 'recordatorio', detalle: { fecha: dia } },
+          () => avisosDelDia(s.pool, dia),
+        );
+
+        return {
+          fecha: dia,
+          avisos,
+          pendientes: avisos.filter((a) => ['programado', 'fallido'].includes(a.estado)).length,
+          atrasados: avisos.filter((a) => a.atrasado).length,
+        };
+      });
+
+      /** Alta de clienta, mascota y rutina en una sola captura. */
+      panel.post('/clientas', async (peticion, respuesta) => {
+        const datos = esquemaAlta.parse(peticion.body);
+
+        const resultado = await conBitacora(
+          s.pool,
+          peticion.operador!,
+          'alta_clienta',
+          { accion: 'modificacion', entidad: 'usuaria', detalle: { alta: true } },
+          () =>
+            altaDeClienta(s.pool, datos, {
+              versionAvisoPrivacidad: VERSION_AVISO_PRIVACIDAD,
+              operadorId: peticion.operador!.id,
+              pasarela: s.pasarela,
+              diasPrueba: s.config.cobros.diasPrueba,
+              precioMensual: s.config.cobros.precioMensual,
+            }),
+        );
+
+        return respuesta.status(201).send(resultado);
+      });
+
+      panel.get('/clientas', async (peticion) => ({
+        clientas: await conBitacora(
+          s.pool,
+          peticion.operador!,
+          'ver_expediente',
+          { accion: 'consulta', entidad: 'usuaria' },
+          () => listarClientas(s.pool),
+        ),
+      }));
+
+      /**
+       * Pestaña «Números»: los siete del piloto, con las palabras de la
+       * referencia. Se acompañan de la salud de envíos, que es la que responde
+       * el criterio de aceptación de RNF-03.
+       */
+      panel.get('/numeros', async (peticion) => {
+        const [numeros, envios] = await Promise.all([
+          conBitacora(
+            s.pool,
+            peticion.operador!,
+            'ver_bandeja',
+            { accion: 'consulta', entidad: 'panel_numeros' },
+            () => numerosDelPiloto(s.pool),
+          ),
+          saludDeEnvios(s.pool, peticion.operador!, { ultimos: 50 }),
+        ]);
+        return { ...numeros, envios };
+      });
+
       /** Derechos ARCO atendidos por el equipo (seccion 09). */
       panel.get('/usuarias/:id/exportacion', async (peticion) => {
         const { id } = z.object({ id: z.string().uuid() }).parse(peticion.params);
@@ -149,6 +319,7 @@ export async function registrarRutasPanel(app: FastifyInstance, s: Servicios): P
         );
       });
     },
-    { prefix: '/panel' },
+    // La API vive bajo /panel/api; /panel sirve la interfaz (archivos estáticos).
+    { prefix: '/panel/api' },
   );
 }

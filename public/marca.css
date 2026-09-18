@@ -1,0 +1,49 @@
+/*
+ * marca.css — la identidad visual de Huella, en un solo lugar.
+ *
+ * ESTE ES EL ÚNICO ARCHIVO DONDE SE ESCRIBE UN COLOR.
+ * En el resto de la hoja de estilos solo se usan estas variables, para que
+ * cambiar la paleta sea cambiar este archivo y nada más.
+ *
+ * La referencia es docs/marca.md. Dirección: crema, camello y tinta.
+ */
+
+:root {
+  /* --- Colores (docs/marca.md) --- */
+  --ground:      #F3F0EB;   /* Fondo de la app */
+  --surface:     #FFFFFF;   /* Tarjetas y superficies */
+  --warm:        #EAE3D9;   /* Fondo suave: mensajes de muestra, cajas internas */
+  --ink:         #2E2926;   /* Texto principal */
+  --ink-soft:    #857B70;   /* Texto secundario */
+  --rule:        #E4DCD1;   /* Líneas y bordes */
+  --rule-firm:   #CDC2B4;   /* Líneas marcadas */
+  --accent:      #2E2926;   /* Botón principal y pestaña activa */
+  --on-accent:   #F3F0EB;   /* Texto sobre el acento */
+  --detail:      #A9825C;   /* Etiquetas y avisos. Es acento: aparece poquito */
+  --detail-soft: #F0E6DA;   /* Fondo del detalle */
+
+  /* --- Tipografía --- */
+  --titular: "Cormorant Garamond", Georgia, serif;
+  --texto:   Jost, "Helvetica Neue", Arial, sans-serif;
+
+  /*
+   * Rojo de acciones destructivas («Borrar»). NO está en docs/marca.md: viene
+   * de la referencia de comportamiento, que sí lo usa. Se deja aquí, con el
+   * resto de los colores, para que quede a la vista y se pueda aprobar o
+   * cambiar en un solo lugar.
+   */
+  --alert:       #8C3A32;
+  --alert-soft:  #F4E4E0;
+
+  /*
+   * «Sombras casi imperceptibles o ninguna»: esta es la de la referencia, tan
+   * tenue que solo despega la tarjeta del fondo.
+   */
+  --sombra: 0 1px 2px rgba(46, 41, 38, 0.05);
+
+  /* --- Medidas --- */
+  --radio: 2px;             /* Bordes rectos: como mucho 2 px */
+  --toque: 44px;            /* Alto mínimo de algo que se pica con el dedo */
+  --letra-suelta: 0.2em;    /* El espaciado de las etiquetas en mayúsculas */
+  --ancho: 680px;           /* El ancho de columna de la referencia */
+}

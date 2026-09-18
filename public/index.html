@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="es-MX">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F3F0EB">
+<title>Panel de Huella</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500&family=Jost:wght@300;400;500;600&display=swap">
+
+<link rel="icon" href="/panel/icono.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/panel/marca.css">
+<link rel="stylesheet" href="/panel/panel.css">
+</head>
+<body>
+
+<!-- ------------------------------------------------------------- acceso -->
+<div class="acceso" id="acceso">
+  <form class="acceso__caja" id="form-acceso">
+    <h1 class="acceso__marca">Huella</h1>
+    <p class="acceso__nota">Panel interno</p>
+
+    <div id="error-acceso" class="banner mal" hidden></div>
+
+    <label for="correo">Correo</label>
+    <input id="correo" name="correo" type="email" autocomplete="username"
+           required placeholder="operadora@huella.mx">
+
+    <label for="clave">Contraseña</label>
+    <input id="clave" name="clave" type="password" autocomplete="current-password" required>
+
+    <button class="btn primary" type="submit">Entrar</button>
+  </form>
+</div>
+
+<!-- --------------------------------------------------------------- panel -->
+<div id="panel" hidden>
+  <div class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <h1>Huella</h1>
+        <span class="today">
+          <span id="hoy-fecha"></span>
+          <button class="salir" id="salir" type="button">Salir</button>
+        </span>
+      </div>
+      <nav class="tabs" role="tablist" aria-label="Secciones del panel">
+        <button role="tab" data-tab="hoy" aria-selected="true" aria-controls="app">Hoy</button>
+        <button role="tab" data-tab="clientas" aria-selected="false" aria-controls="app">Clientas</button>
+        <button role="tab" data-tab="citas" aria-selected="false" aria-controls="app">Citas</button>
+        <button role="tab" data-tab="numeros" aria-selected="false" aria-controls="app">Números</button>
+      </nav>
+    </div>
+  </div>
+
+  <main id="app" role="tabpanel" aria-live="polite">
+    <div class="empty"><p>Cargando…</p></div>
+  </main>
+</div>
+
+<script src="/panel/panel.js"></script>
+</body>
+</html>

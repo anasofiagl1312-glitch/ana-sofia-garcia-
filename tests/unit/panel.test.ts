@@ -4,10 +4,11 @@ import { type Permiso, type RolInterno, SinPermiso, asegurarPermiso, puede } fro
 const ROLES: RolInterno[] = ['operadora', 'supervisora', 'administradora'];
 
 describe('control por rol del panel interno (RNF-06)', () => {
-  it('toda operadora puede atender la bandeja', () => {
+  it('toda operadora puede atender la bandeja y dar de alta clientas', () => {
     for (const rol of ROLES) {
       expect(puede(rol, 'ver_bandeja'), rol).toBe(true);
       expect(puede(rol, 'resolver_caso'), rol).toBe(true);
+      expect(puede(rol, 'alta_clienta'), rol).toBe(true);
     }
   });
 
@@ -24,7 +25,7 @@ describe('control por rol del panel interno (RNF-06)', () => {
 
   it('los permisos crecen con el rol, sin huecos', () => {
     const permisos: Permiso[] = [
-      'ver_bandeja', 'resolver_caso', 'ver_expediente', 'ver_conversaciones',
+      'alta_clienta', 'ver_bandeja', 'resolver_caso', 'ver_expediente', 'ver_conversaciones',
       'ver_suscripciones', 'exportar_datos', 'borrar_datos', 'administrar_equipo',
     ];
     const deOperadora = permisos.filter((p) => puede('operadora', p));

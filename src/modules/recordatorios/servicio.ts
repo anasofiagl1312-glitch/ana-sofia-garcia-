@@ -210,6 +210,40 @@ export interface FilaRecordatorioVencido {
 }
 
 /**
+ * Consulta base de un aviso con todo lo que hace falta para redactarlo.
+ *
+ * La comparte el barrido (que los envia) y el panel interno (que los muestra en
+ * la pestaña de Hoy). Tenerla en un solo lugar es lo que evita que el texto que
+ * la operadora ve en pantalla y el que sale por WhatsApp se separen.
+ */
+export const SQL_AVISO_COMPLETO = `
+  SELECT r.id, r.cita_id, r.usuaria_id, r.momento, r.programado_para, r.intentos,
+         r.estado, r.enviado_en,
+         u.celular, u.zona_horaria, u.nombre AS usuaria,
+         c.estado AS estado_cita, c.inicia_en, c.costo_confirmado, c.indicaciones,
+         ts.nombre AS servicio,
+         m.nombre  AS mascota,
+         p.id      AS proveedor_id,
+         CASE WHEN p.sucursal IS NULL OR p.sucursal = '' THEN p.negocio
+              ELSE p.negocio || ' ' || p.sucursal END AS proveedor,
+         p.direccion,
+         (SELECT json_agg(json_build_object(
+                   'diaSemana', pa.dia_semana,
+                   'horaInicio', pa.hora_inicio,
+                   'horaFin', pa.hora_fin,
+                   'prioridad', pa.prioridad)
+                 ORDER BY pa.prioridad)
+            FROM preferencia_agenda pa
+           WHERE pa.usuaria_id = u.id) AS preferencias
+    FROM recordatorio r
+    JOIN cita c           ON c.id = r.cita_id
+    JOIN usuaria u        ON u.id = r.usuaria_id
+    JOIN mascota m        ON m.id = c.mascota_id
+    JOIN proveedor p      ON p.id = c.proveedor_id
+    JOIN tipo_servicio ts ON ts.codigo = c.tipo_servicio
+`;
+
+/**
  * Toma los avisos vencidos y los marca como "enviando" en la misma transaccion.
  *
  * SKIP LOCKED permite correr varios trabajadores sin que dos agarren el mismo
@@ -349,7 +383,7 @@ export async function barrerRecordatorios(
   return resumen;
 }
 
-function datosDeAviso(fila: FilaRecordatorioVencido): DatosAviso {
+export function datosDeAviso(fila: FilaRecordatorioVencido): DatosAviso {
   return {
     servicio: fila.servicio,
     mascota: fila.mascota,
@@ -369,7 +403,7 @@ function datosDeAviso(fila: FilaRecordatorioVencido): DatosAviso {
  * `opcionesDeHorario` ofrece dias habiles cercanos. Los demas momentos no
  * llevan opciones.
  */
-function opcionesParaAviso(fila: FilaRecordatorioVencido): OpcionHorario[] {
+export function opcionesParaAviso(fila: FilaRecordatorioVencido): OpcionHorario[] {
   if (fila.momento !== 't_21') return [];
   return opcionesDeHorario(fila.preferencias ?? [], fila.inicia_en, fila.zona_horaria);
 }

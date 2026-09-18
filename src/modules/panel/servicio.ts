@@ -23,6 +23,7 @@ export interface Operador {
 }
 
 export type Permiso =
+  | 'alta_clienta'
   | 'ver_bandeja'
   | 'resolver_caso'
   | 'ver_expediente'
@@ -33,10 +34,12 @@ export type Permiso =
   | 'administrar_equipo';
 
 const PERMISOS: Record<RolInterno, readonly Permiso[]> = {
-  // La operadora hace el trabajo diario: atiende la bandeja y resuelve citas.
-  operadora: ['ver_bandeja', 'resolver_caso', 'ver_expediente', 'ver_conversaciones'],
+  // La operadora hace el trabajo diario: da de alta clientas, atiende la bandeja
+  // y resuelve citas.
+  operadora: ['alta_clienta', 'ver_bandeja', 'resolver_caso', 'ver_expediente', 'ver_conversaciones'],
   // La supervisora ademas ve el estado comercial.
   supervisora: [
+    'alta_clienta',
     'ver_bandeja',
     'resolver_caso',
     'ver_expediente',
@@ -46,6 +49,7 @@ const PERMISOS: Record<RolInterno, readonly Permiso[]> = {
   ],
   // Borrar los datos de una usuaria es irreversible: un solo rol puede hacerlo.
   administradora: [
+    'alta_clienta',
     'ver_bandeja',
     'resolver_caso',
     'ver_expediente',
@@ -181,6 +185,56 @@ export async function citasDelDia(
         costoConfirmado: r.costo_confirmado,
         tieneEvidencia: r.tiene_evidencia,
       })) as CitaDelDia[];
+    },
+  );
+}
+
+/**
+ * Citas próximas para la pestaña de Citas.
+ *
+ * Mira un poco hacia atrás además de hacia adelante: una cita de anteayer que
+ * todavía no se cierra es justo la que la operadora tiene que atender, y
+ * esconderla por haber pasado sería perderla.
+ */
+export async function citasProximas(
+  pool: pg.Pool,
+  operador: Operador,
+  opciones: { diasAtras?: number; diasAdelante?: number } = {},
+): Promise<CitaDelDia[]> {
+  return conBitacora(
+    pool,
+    operador,
+    'ver_expediente',
+    { accion: 'consulta', entidad: 'cita' },
+    async () => {
+      const { rows } = await pool.query(
+        `SELECT c.id, c.inicia_en, c.estado, c.costo_confirmado, c.costo_real,
+                ts.nombre AS servicio, m.nombre AS mascota,
+                u.nombre AS usuaria, u.celular,
+                CASE WHEN p.sucursal IS NULL OR p.sucursal = '' THEN p.negocio
+                     ELSE p.negocio || ' ' || p.sucursal END AS proveedor,
+                p.telefono AS proveedor_telefono,
+                p.whatsapp AS proveedor_whatsapp,
+                p.direccion AS proveedor_direccion,
+                m.raza, m.peso_kg,
+                u.zona_horaria,
+                EXISTS (SELECT 1 FROM interaccion i WHERE i.cita_id = c.id) AS tiene_evidencia,
+                (SELECT count(*)::int FROM recordatorio r
+                  WHERE r.cita_id = c.id AND r.estado IN ('enviado','entregado','leido')) AS avisos_enviados,
+                (SELECT count(*)::int FROM recordatorio r WHERE r.cita_id = c.id) AS avisos_totales
+           FROM cita c
+           JOIN usuaria u        ON u.id = c.usuaria_id
+           JOIN mascota m        ON m.id = c.mascota_id
+           JOIN proveedor p      ON p.id = c.proveedor_id
+           JOIN tipo_servicio ts ON ts.codigo = c.tipo_servicio
+          WHERE u.anonimizada_en IS NULL
+            AND c.estado NOT IN ('cancelada', 'reagendada')
+            AND c.inicia_en >= now() - ($1 || ' days')::interval
+            AND c.inicia_en <= now() + ($2 || ' days')::interval
+          ORDER BY c.inicia_en`,
+        [String(opciones.diasAtras ?? 14), String(opciones.diasAdelante ?? 90)],
+      );
+      return rows as unknown as CitaDelDia[];
     },
   );
 }

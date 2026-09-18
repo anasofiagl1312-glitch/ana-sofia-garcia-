@@ -309,7 +309,7 @@ miles de registros duplicados, sin forma confiable de saber cuáles son el mismo
 negocio. Con la decisión tomada desde ahora, el catálogo del directorio **nace
 solo** del trabajo que las usuarias ya hacen al registrar sus negocios.
 
-Hay una consulta lista en el panel (`GET /panel/proveedores-compartidos`) que
+Hay una consulta lista en el panel (`GET /panel/api/proveedores-compartidos`) que
 lista los negocios que ya comparten varias usuarias. Ésa es, literalmente, la
 lista de a quién llamar el día que el directorio arranque — y ya tienen un motivo
 para darse de alta, porque ya les están llegando citas.
