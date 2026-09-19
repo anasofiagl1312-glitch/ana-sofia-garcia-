@@ -22,6 +22,17 @@ const esquema = z.object({
   WHATSAPP_WEBHOOK_VERIFY_TOKEN: z.string().optional(),
   WHATSAPP_APP_SECRET: z.string().optional(),
 
+  /*
+   * Leer el carnet.
+   *
+   * Por defecto se resuelve solo: si hay llave, se lee; si no, la interfaz
+   * ofrece capturar a mano. Así el piloto arranca sin decidir nada, y encender
+   * la lectura es poner la llave en el .env.
+   */
+  CARNET_DRIVER: z.enum(['auto', 'claude', 'ninguno']).default('auto'),
+  CARNET_MODELO: z.string().optional(),
+  ANTHROPIC_API_KEY: z.string().optional(),
+
   STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
   STORAGE_LOCAL_PATH: z.string().default('./storage'),
 
@@ -46,6 +57,7 @@ export interface Config {
     webhookVerifyToken: string | undefined;
     appSecret: string | undefined;
   };
+  carnet: { driver: 'claude' | 'ninguno'; apiKey: string | undefined; modelo: string | undefined };
   almacenamiento: { driver: 'local' | 's3'; rutaLocal: string };
   cobros: { driver: 'fake' | 'stripe'; diasPrueba: number; precioMensual: number };
 }
@@ -78,6 +90,14 @@ export function cargarConfig(env: NodeJS.ProcessEnv = process.env): Config {
       accessToken: parsed.WHATSAPP_ACCESS_TOKEN,
       webhookVerifyToken: parsed.WHATSAPP_WEBHOOK_VERIFY_TOKEN,
       appSecret: parsed.WHATSAPP_APP_SECRET,
+    },
+    carnet: {
+      driver:
+        parsed.CARNET_DRIVER === 'auto'
+          ? (parsed.ANTHROPIC_API_KEY ? 'claude' : 'ninguno')
+          : parsed.CARNET_DRIVER,
+      apiKey: parsed.ANTHROPIC_API_KEY,
+      modelo: parsed.CARNET_MODELO,
     },
     almacenamiento: { driver: parsed.STORAGE_DRIVER, rutaLocal: parsed.STORAGE_LOCAL_PATH },
     cobros: {

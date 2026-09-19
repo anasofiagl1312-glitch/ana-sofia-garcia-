@@ -365,6 +365,87 @@ textarea:focus,
 
 .resumen dd { margin: 0; font-size: 15px; }
 
+/* ------------------------------------------- lo que salió de leer el carnet */
+
+.hallazgos { list-style: none; margin: 0; padding: 0; }
+
+.hallazgo {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radio);
+  padding: 14px 15px;
+  margin-bottom: 10px;
+}
+
+/* La casilla y el nombre de la vacuna son un solo blanco de 44 px: en la calle
+   se pica con el pulgar, no con la uña. */
+.hallazgo__cabeza {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--toque);
+  margin-bottom: 6px;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.hallazgo__cabeza input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  min-height: 0;
+  margin: 0;
+  flex: none;
+  accent-color: var(--accent);
+}
+
+.hallazgo__cabeza b { font-weight: 600; }
+
+/* Lo que el lector no vio claro. Es camello porque es un aviso, no un error:
+   el dato sí se propone, sólo conviene mirarlo. */
+.revisar {
+  margin-left: 8px;
+  padding: 2px 7px;
+  border-radius: var(--radio);
+  background: var(--detail-soft);
+  color: var(--detail);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  vertical-align: 2px;
+}
+
+/* La fecha con letra, debajo del campo. No es decoración: el <input type=date>
+   lo dibuja el navegador con su idioma, y en inglés 03/10 se lee al revés. */
+.en-letra {
+  display: block;
+  margin: -8px 0 12px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.en-letra:empty { display: none; }
+
+.razones { margin: 8px 0 10px; padding-left: 18px; }
+.razones li { margin-bottom: 4px; }
+
+/* Un aviso de que algo salió bien. Va sobre la página porque aparece justo
+   cuando la pantalla cambia y el formulario que lo provocó ya no existe. */
+.aviso {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  z-index: 30;
+  max-width: 88vw;
+  background: var(--ink);
+  color: var(--ground);
+  padding: 11px 18px;
+  border-radius: var(--radio);
+  font-size: 14.5px;
+  font-weight: 500;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }

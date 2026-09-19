@@ -27,7 +27,11 @@
     proveedores: [],
     preferencias: [],
     aplicaciones: [],
-    documentos: 0
+    documentos: 0,
+    puedeLeerCarnet: false,
+    /* La propuesta que salió de leer el carnet, mientras la revisa. */
+    propuesta: null,
+    documentoLeido: null
   };
   var paso = 0;
 
@@ -94,6 +98,23 @@
     caja.textContent = mensaje;
     formulario.insertBefore(caja, formulario.firstChild);
     caja.scrollIntoView({ block: "nearest" });
+  }
+
+  /**
+   * Un aviso corto de que algo salió bien.
+   *
+   * mostrarError vive dentro de un formulario; esto no, porque se enseña justo
+   * cuando la pantalla cambia y ese formulario ya no existe.
+   */
+  function avisar(mensaje) {
+    var previo = document.querySelector(".aviso");
+    if (previo) previo.remove();
+    var caja = document.createElement("div");
+    caja.className = "aviso";
+    caja.setAttribute("role", "status");
+    caja.textContent = mensaje;
+    document.body.appendChild(caja);
+    setTimeout(function () { caja.remove(); }, 3500);
   }
 
   function pintarProgreso() {
@@ -166,7 +187,128 @@
       "</div></form>";
   }
 
+  /*
+   * Lo que salió de leer el carnet, para que ella lo apruebe.
+   *
+   * Todo llega lleno y todo se puede cambiar. Nada se guarda hasta que le pica
+   * a Guardar: una fecha mal leída no se nota en la base, pero sí se nota aquí,
+   * en dos segundos, por la persona que sabe cuándo la vacunaron.
+   */
+  function pantallaRevision() {
+    var p = estado.propuesta;
+    var m = p.mascota;
+    var dudoso = function (campo) {
+      return (p.dudosos || []).indexOf(campo) !== -1
+        ? '<span class="revisar">revísalo</span>' : "";
+    };
+
+    var vacunas = p.aplicaciones.length
+      ? p.aplicaciones.map(function (a, i) {
+          return '<li class="hallazgo">' +
+            '<label class="hallazgo__cabeza">' +
+            '<input type="checkbox" name="vacuna" value="' + i + '" checked>' +
+            "<b>" + esc(a.producto) + "</b>" + dudoso("aplicaciones." + i + ".producto") +
+            "</label>" +
+            '<div class="pareja">' +
+            campo("Aplicada el", conLetra("v" + i + "fecha", a.fechaAplicacion)) +
+            campo("Refuerzo", conLetra("v" + i + "refuerzo", a.fechaRefuerzo)) +
+            "</div>" +
+            '<div class="pareja">' +
+            campo("Marca", '<input name="v' + i + 'marca" maxlength="80" value="' + esc(a.marca || "") + '">') +
+            campo("Lote", '<input name="v' + i + 'lote" maxlength="60" value="' + esc(a.lote || "") + '">') +
+            "</div>" +
+            (a.veterinario
+              ? campo("Veterinario", '<input name="v' + i + 'vet" maxlength="120" value="' + esc(a.veterinario) + '">')
+              : "") +
+            "</li>";
+        }).join("")
+      : "";
+
+    // Lo que se leyó pero no se pudo usar. Se enseña con su razón: es la
+    // diferencia entre "no encontré nada" y "esto está aquí, complétalo tú".
+    var perdidos = (p.descartados || []).length
+      ? '<div class="nota"><b>Esto no lo pude usar:</b><ul class="razones">' +
+        p.descartados.map(function (d) {
+          return "<li>" + esc(d.porque) + "</li>";
+        }).join("") + "</ul>Puedes agregarlo a mano en el paso anterior.</div>"
+      : "";
+
+    app.innerHTML =
+      '<p class="paso__numero">Paso 2 de 4</p>' +
+      '<h2 class="paso__titulo">Esto es lo que leí</h2>' +
+      '<p class="paso__nota">Revísalo y corrige lo que haga falta. No se guarda nada ' +
+      "hasta que le des Guardar.</p>" +
+      (p.notas ? '<div class="nota">' + esc(p.notas) + "</div>" : "") +
+
+      '<form data-form="revision">' +
+      '<p class="subtitulo">Tu mascota</p>' +
+      '<div class="pareja">' +
+      campo("Nombre" + dudoso("mascota.nombre"),
+        '<input name="nombre" maxlength="60" value="' + esc(m.nombre || "") + '">') +
+      campo("Raza" + dudoso("mascota.raza"),
+        '<input name="raza" maxlength="60" value="' + esc(m.raza || "") + '">') +
+      "</div>" +
+      '<div class="pareja">' +
+      campo("Especie", selector("especie", [["", "—"], ["perro", "Perro"], ["gato", "Gato"], ["otra", "Otra"]], m.especie)) +
+      campo("Sexo", selector("sexo", [["", "—"], ["macho", "Macho"], ["hembra", "Hembra"], ["desconocido", "No sé"]], m.sexo)) +
+      "</div>" +
+      '<div class="pareja">' +
+      campo("Nacimiento" + dudoso("mascota.nacimiento"),
+        conLetra("nacimiento", m.nacimiento),
+        m.nacimientoPrecision === "anio" ? "El carnet sólo dice el año; el día es un aproximado."
+          : m.nacimientoPrecision === "mes" ? "El carnet sólo dice el mes." : "") +
+      campo("Peso", '<input name="pesoKg" type="number" step="0.5" min="0" max="120" value="' +
+        esc(m.pesoKg == null ? "" : m.pesoKg) + '">') +
+      "</div>" +
+
+      (vacunas
+        ? '<p class="subtitulo">Vacunas y desparasitaciones</p>' +
+          '<p class="paso__nota">Desmarca las que no quieras guardar.</p>' +
+          '<ul class="hallazgos">' + vacunas + "</ul>"
+        : "") +
+
+      perdidos +
+
+      (p.veterinaria
+        ? '<div class="nota">También vi <b>' + esc(p.veterinaria.negocio) + "</b>. " +
+          "Te la propongo como tu veterinaria en el siguiente paso.</div>"
+        : "") +
+
+      '<div class="acciones">' +
+      '<button class="boton boton--callado" type="button" data-accion="descartar">Mejor lo capturo yo</button>' +
+      '<button class="boton boton--principal" type="submit">Guardar</button>' +
+      "</div></form>";
+  }
+
+  /**
+   * Una fecha, y abajo la misma fecha con letra.
+   *
+   * El campo <input type="date"> lo dibuja el navegador con SU idioma: en
+   * inglés sale mm/dd/aaaa y "03/10/2026" se lee como 3 de octubre. En la
+   * pantalla cuyo único trabajo es confirmar que la fecha se leyó bien, eso no
+   * puede quedar a interpretación.
+   */
+  function conLetra(nombre, iso) {
+    return '<input name="' + nombre + '" type="date" data-letra="' + nombre + '" value="' + esc(iso || "") + '">' +
+      '<span class="en-letra" id="letra-' + nombre + '">' + (iso ? esc(fechaLegible(iso)) : "") + "</span>";
+  }
+
+  app.addEventListener("change", function (e) {
+    var campoFecha = e.target.closest("input[data-letra]");
+    if (!campoFecha) return;
+    var letra = document.getElementById("letra-" + campoFecha.dataset.letra);
+    if (letra) letra.textContent = campoFecha.value ? fechaLegible(campoFecha.value) : "";
+  });
+
+  function selector(nombre, opciones, elegido) {
+    return '<select name="' + nombre + '">' + opciones.map(function (o) {
+      return '<option value="' + esc(o[0]) + '"' +
+        (String(elegido || "") === o[0] ? " selected" : "") + ">" + esc(o[1]) + "</option>";
+    }).join("") + "</select>";
+  }
+
   function pantallaCarnet() {
+    if (estado.propuesta) return pantallaRevision();
     var m = estado.mascotas[0];
     var lista = estado.aplicaciones.length
       ? '<ul class="lista">' + estado.aplicaciones.map(function (a) {
@@ -385,19 +527,77 @@
     cuerpo.append("archivo", archivo);
 
     pedir("/mascotas/" + m.id + "/documentos", { method: "POST", body: cuerpo, archivo: true })
-      .then(function () {
+      .then(function (doc) {
         estado.documentos += 1;
-        nota.textContent = estado.documentos +
-          (estado.documentos === 1 ? " documento guardado" : " documentos guardados");
         e.target.value = "";
+
+        // La foto ya está guardada. Leerla es lo que sigue, y si falla no se
+        // pierde nada: el carnet queda y las vacunas se capturan a mano.
+        if (!estado.puedeLeerCarnet) {
+          nota.textContent = guardados();
+          return;
+        }
+
+        nota.textContent = "Leyendo el carnet… tarda unos segundos.";
+        return pedir("/documentos/" + doc.id + "/lectura", { method: "POST" })
+          .then(function (r) {
+            estado.propuesta = r.propuesta;
+            estado.documentoLeido = doc.id;
+            if (r.propuesta.cuantosDatos === 0) {
+              nota.textContent = "No alcancé a sacar datos de esa foto. " +
+                (r.propuesta.notas || "Captúralas abajo, o sube otra más clara.");
+              return;
+            }
+            ir(paso); // se vuelve a dibujar el paso, ahora con la revisión
+          })
+          .catch(function (err) {
+            // 422 es "no se pudo leer", no "se rompió": se sigue a mano.
+            nota.textContent = err.message + " La foto sí quedó guardada.";
+          });
       })
       .catch(function (err) { nota.textContent = err.message; });
+  }
+
+  function guardados() {
+    return estado.documentos +
+      (estado.documentos === 1 ? " documento guardado" : " documentos guardados");
   }
 
   app.addEventListener("click", function (e) {
     var b = e.target.closest("[data-ir]");
     if (b) { e.preventDefault(); ir(Number(b.dataset.ir)); }
+
+    var d = e.target.closest('[data-accion="descartar"]');
+    if (d) {
+      // La foto se queda guardada; lo único que se tira es la propuesta.
+      e.preventDefault();
+      estado.propuesta = null;
+      estado.documentoLeido = null;
+      ir(2);
+    }
   });
+
+  /** Vuelve a traer del servidor lo que quedó guardado del carnet. */
+  function refrescarCarnet(mascotaId) {
+    return pedir("/mascotas/" + mascotaId + "/carnet")
+      .then(function (carnet) {
+        estado.aplicaciones = carnet.aplicaciones || [];
+        estado.documentos = (carnet.documentos || []).length;
+        if (carnet.mascota) estado.mascotas[0] = carnet.mascota;
+      })
+      .catch(function () { /* la pantalla se dibuja con lo que ya tiene */ });
+  }
+
+  function resumenDeGuardado(r) {
+    var partes = [];
+    if (r.aplicacionesGuardadas) {
+      partes.push(r.aplicacionesGuardadas + (r.aplicacionesGuardadas === 1 ? " vacuna" : " vacunas"));
+    }
+    if (r.aplicacionesRepetidas) {
+      partes.push(r.aplicacionesRepetidas + " que ya estaban");
+    }
+    return partes.length ? "Guardé " + partes.join(" y ") + "." : "Listo, guardado.";
+  }
 
   app.addEventListener("submit", function (e) {
     e.preventDefault();
@@ -408,7 +608,58 @@
 
     var trabajo;
 
-    if (tipo === "mascota") {
+    if (tipo === "revision") {
+      var m = estado.mascotas[0];
+      var mascota = {
+        nombre: d.nombre || null,
+        raza: d.raza || null,
+        especie: d.especie || null,
+        sexo: d.sexo || null,
+        nacimiento: d.nacimiento || null,
+        pesoKg: d.pesoKg ? Number(d.pesoKg) : null
+      };
+      // Si ella tocó la fecha, ya es un día exacto: la precisión que traía el
+      // carnet deja de aplicar y el nacimiento vale como lo que ella puso.
+      if (d.nacimiento) {
+        mascota.nacimientoPrecision =
+          d.nacimiento === estado.propuesta.mascota.nacimiento
+            ? (estado.propuesta.mascota.nacimientoPrecision || "dia")
+            : "dia";
+      }
+
+      var elegidas = [];
+      Array.prototype.forEach.call(f.querySelectorAll('input[name="vacuna"]:checked'), function (el) {
+        var i = Number(el.value);
+        var propuesta = estado.propuesta.aplicaciones[i];
+        if (!propuesta) return;
+        var fecha = d["v" + i + "fecha"];
+        if (!fecha) return; // sin fecha no hay renglón que guardar
+        elegidas.push({
+          producto: propuesta.producto,
+          marca: d["v" + i + "marca"] || null,
+          lote: d["v" + i + "lote"] || null,
+          fechaAplicacion: fecha,
+          fechaRefuerzo: d["v" + i + "refuerzo"] || null,
+          veterinario: d["v" + i + "vet"] || propuesta.veterinario || null,
+          cedulaProfesional: propuesta.cedulaProfesional || null
+        });
+      });
+
+      trabajo = pedir("/mascotas/" + m.id + "/carnet/confirmacion", {
+        method: "POST",
+        body: { documentoId: estado.documentoLeido, mascota: mascota, aplicaciones: elegidas }
+      }).then(function (r) {
+        estado.propuesta = null;
+        estado.documentoLeido = null;
+        // La mascota y las vacunas cambiaron en la base: se vuelven a traer en
+        // vez de armarlas aquí, para que la pantalla no muestre una versión
+        // distinta de la que quedó guardada.
+        return refrescarCarnet(m.id).then(function () {
+          ir(2);
+          avisar(resumenDeGuardado(r));
+        });
+      });
+    } else if (tipo === "mascota") {
       var cuerpo = {
         nombre: d.nombre,
         especie: d.especie || "perro",
@@ -530,6 +781,7 @@
         estado.mascotas = r.mascotas || [];
         estado.proveedores = r.proveedores || [];
         estado.preferencias = r.preferencias || [];
+        estado.puedeLeerCarnet = !!r.puedeLeerCarnet;
 
         var pila = (r.clienta.nombre || "").split(" ")[0];
         saludo.textContent = pila ? "Los datos de " + pila : "Tus datos";

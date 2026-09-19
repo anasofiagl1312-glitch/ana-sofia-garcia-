@@ -24,6 +24,7 @@ import { cargarConfig } from '../../src/config/index.js';
 import { crearCanalWhatsApp } from '../../src/channels/whatsapp/index.js';
 import { AlmacenEnMemoria, llaveDesdeBase64 } from '../../src/modules/almacenamiento/index.js';
 import { PasarelaFalsa } from '../../src/modules/suscripcion/servicio.js';
+import { SinLector } from '../../src/channels/carnet/index.js';
 import { numerosDelPiloto } from '../../src/modules/panel/numeros.js';
 import { programarRecordatoriosDeCita } from '../../src/modules/recordatorios/servicio.js';
 import { horaLocalDe, instanteDesdeLocal } from '../../src/domain/tiempo.js';
@@ -55,6 +56,7 @@ beforeAll(async () => {
     whatsapp: crearCanalWhatsApp({ driver: 'fake' }),
     almacen: new AlmacenEnMemoria(llaveDesdeBase64(randomBytes(32).toString('base64'))),
     pasarela: new PasarelaFalsa(),
+    lectorDeCarnet: new SinLector(),
   });
   await app.ready();
 });

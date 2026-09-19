@@ -15,6 +15,7 @@ import { cargarConfig } from '../../src/config/index.js';
 import { crearCanalWhatsApp } from '../../src/channels/whatsapp/index.js';
 import { AlmacenEnMemoria, llaveDesdeBase64 } from '../../src/modules/almacenamiento/index.js';
 import { PasarelaFalsa } from '../../src/modules/suscripcion/servicio.js';
+import { SinLector } from '../../src/channels/carnet/index.js';
 import { crearInvitacion, estadoDeInvitacion } from '../../src/modules/alta/invitaciones.js';
 import { avisosDelDia } from '../../src/modules/panel/avisos.js';
 import { asuntoDeAviso, enlaceCorreo } from '../../src/modules/mensajes/correo.js';
@@ -34,6 +35,7 @@ beforeAll(async () => {
     whatsapp: crearCanalWhatsApp({ driver: 'fake' }),
     almacen: new AlmacenEnMemoria(llaveDesdeBase64(randomBytes(32).toString('base64'))),
     pasarela: new PasarelaFalsa(),
+    lectorDeCarnet: new SinLector(),
   });
   await app.ready();
 });

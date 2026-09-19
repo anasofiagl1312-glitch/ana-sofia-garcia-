@@ -8,6 +8,7 @@
 import { cargarConfig } from './config/index.js';
 import { crearPool } from './db/pool.js';
 import { crearCanalWhatsApp } from './channels/whatsapp/index.js';
+import { crearLectorDeCarnet } from './channels/carnet/index.js';
 import { AlmacenLocal, llaveDesdeBase64 } from './modules/almacenamiento/index.js';
 import { PasarelaFalsa } from './modules/suscripcion/servicio.js';
 import { crearServidor } from './http/servidor.js';
@@ -26,6 +27,7 @@ const app = await crearServidor({
   almacen: new AlmacenLocal(config.almacenamiento.rutaLocal, llaveDesdeBase64(config.llaveCifrado)),
   // La pasarela real se conecta aqui cuando se elija (ver docs/respuesta-tecnica.md).
   pasarela: new PasarelaFalsa(),
+  lectorDeCarnet: await crearLectorDeCarnet(config.carnet),
 });
 
 await app.listen({ port: config.puerto, host: '0.0.0.0' });

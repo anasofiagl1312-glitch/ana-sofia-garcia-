@@ -28,7 +28,10 @@ Registro ──▶ T−21  pregunta disponibilidad con opciones concretas
 ```
 
 Y guarda el carnet de vacunación en digital, legible en el mostrador de la
-veterinaria aunque no haya señal.
+veterinaria aunque no haya señal. Al subirlo se lee solo: el sistema propone la
+mascota y cada vacuna con su fecha y su refuerzo, y la dueña confirma. Lo leído
+nunca se guarda sin que ella lo apruebe — el carnet va escrito a mano, y una
+fecha mal leída se convierte en un refuerzo avisado el año equivocado.
 
 **Regla que atraviesa todo el sistema:** todo aviso incluye los cuatro datos —
 qué servicio, cuándo, dónde y cuánto cuesta. Está verificada en código
@@ -83,7 +86,7 @@ recordatorio (RNF-03), y para poder escalarlo por su cuenta.
 ### Pruebas
 
 ```bash
-npm test            # 241 pruebas
+npm test            # 295 pruebas
 npm run typecheck
 ```
 

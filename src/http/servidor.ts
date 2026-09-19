@@ -18,6 +18,7 @@ import { ZodError } from 'zod';
 import type { Config } from '../config/index.js';
 import type { CanalWhatsApp } from '../channels/whatsapp/index.js';
 import type { Almacen } from '../modules/almacenamiento/index.js';
+import type { LectorDeCarnet } from '../channels/carnet/index.js';
 import { DocumentoRechazado } from '../modules/almacenamiento/index.js';
 import type { Pasarela } from '../modules/suscripcion/servicio.js';
 import { usuariaDeSesion } from '../modules/auth/servicio.js';
@@ -43,6 +44,8 @@ export interface Servicios {
   whatsapp: CanalWhatsApp;
   almacen: Almacen;
   pasarela: Pasarela;
+  /** Quien lee los carnets. Sin él, la interfaz ofrece captura a mano. */
+  lectorDeCarnet: LectorDeCarnet;
 }
 
 declare module 'fastify' {

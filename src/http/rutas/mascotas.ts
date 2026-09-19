@@ -20,6 +20,9 @@ const esquemaMascota = z.object({
   notasManejo: z.string().trim().max(1000).nullish(),
 });
 
+import { CarnetIlegible } from '../../channels/carnet/index.js';
+import { DocumentoNoEncontrado, confirmarCarnet, leerCarnet } from '../../modules/carnet/lectura.js';
+
 const esquemaAplicacion = z.object({
   producto: z.string().trim().min(1).max(120),
   marca: z.string().trim().max(80).nullish(),
@@ -31,6 +34,23 @@ const esquemaAplicacion = z.object({
   tipoServicio: z.string().trim().max(40).nullish(),
   citaId: z.string().uuid().nullish(),
   documentoId: z.string().uuid().nullish(),
+});
+
+const esquemaConfirmacion = z.object({
+  documentoId: z.string().uuid().nullish(),
+  mascota: z
+    .object({
+      nombre: z.string().trim().min(1).max(60).nullish(),
+      especie: z.enum(['perro', 'gato', 'otra']).nullish(),
+      raza: z.string().trim().max(60).nullish(),
+      sexo: z.enum(['macho', 'hembra', 'desconocido']).nullish(),
+      nacimiento: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
+      nacimientoPrecision: z.enum(['dia', 'mes', 'anio']).nullish(),
+      pesoKg: z.number().positive().max(120).nullish(),
+      esterilizada: z.boolean().nullish(),
+    })
+    .optional(),
+  aplicaciones: z.array(esquemaAplicacion.omit({ citaId: true, documentoId: true })).max(60).optional(),
 });
 
 const idEnRuta = z.object({ id: z.string().uuid('Identificador inválido.') });
@@ -219,5 +239,65 @@ export async function registrarRutasMascotas(app: FastifyInstance, s: Servicios)
       );
       return { historial: rows };
     });
+
+    /*
+     * Leer el carnet y proponer lo que dice.
+     *
+     * Devuelve una propuesta: no escribe nada en mascota ni en aplicacion. Lo
+     * que se guarda es lo que la clienta confirma en la ruta de abajo, porque
+     * una fecha mal leída no se nota hasta que el refuerzo se avisa con un año
+     * de diferencia.
+     *
+     * La respuesta lleva todo lo que necesita una pantalla —lo propuesto, lo
+     * dudoso y lo descartado con su razón— para que sirva igual al formulario
+     * web y a la app de la clienta.
+     */
+    rutas.post('/documentos/:id/lectura', async (peticion) => {
+      const { id } = idEnRuta.parse(peticion.params);
+      const { forzar } = z.object({ forzar: z.boolean().optional() }).parse(peticion.body ?? {});
+
+      try {
+        const r = await leerCarnet(s.pool, {
+          documentoId: id,
+          usuariaId: peticion.usuariaId!,
+          almacen: s.almacen,
+          lector: s.lectorDeCarnet,
+          ...(forzar === undefined ? {} : { forzar }),
+        });
+        return { ...r, lector: s.lectorDeCarnet.nombre };
+      } catch (error) {
+        throw comoRespuesta(error);
+      }
+    });
+
+    /** Guarda lo que la clienta aprobó de la propuesta, ya corregido por ella. */
+    rutas.post('/mascotas/:id/carnet/confirmacion', async (peticion) => {
+      const { id } = idEnRuta.parse(peticion.params);
+      const cuerpo = esquemaConfirmacion.parse(peticion.body);
+
+      try {
+        return await confirmarCarnet(s.pool, {
+          mascotaId: id,
+          usuariaId: peticion.usuariaId!,
+          documentoId: cuerpo.documentoId ?? null,
+          confirmado: cuerpo,
+        });
+      } catch (error) {
+        throw comoRespuesta(error);
+      }
+    });
   });
+}
+
+/**
+ * Los errores del carnet, con el código que les toca.
+ *
+ * Un carnet que no se pudo leer NO es un error del servidor: es una foto
+ * borrosa, y la respuesta tiene que decirlo con un 422 para que la pantalla
+ * ofrezca capturar a mano en vez de enseñar "algo salió mal".
+ */
+function comoRespuesta(error: unknown): unknown {
+  if (error instanceof DocumentoNoEncontrado) return Object.assign(error, { statusCode: 404 });
+  if (error instanceof CarnetIlegible) return Object.assign(error, { statusCode: 422 });
+  return error;
 }

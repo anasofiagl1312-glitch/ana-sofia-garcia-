@@ -77,6 +77,9 @@ export async function registrarRutasAlta(app: FastifyInstance, s: Servicios): Pr
       mascotas,
       proveedores,
       preferencias,
+      // Si hay con qué leer el carnet. Sin esto la pantalla enseñaría un botón
+      // de "leer solo" que siempre falla; con esto ofrece capturar a mano.
+      puedeLeerCarnet: s.lectorDeCarnet.disponible,
     };
   });
 

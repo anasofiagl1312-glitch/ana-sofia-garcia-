@@ -11,6 +11,15 @@ cambia qué se puede romper sin que nadie se dé cuenta: el panel es la única
 salida del producto, así que un aviso que no se puede copiar es un aviso que no
 existe.
 
+**A dónde va**: lo de la clienta acaba siendo una **app nativa** (cámara para el
+carnet y notificaciones), y el panel de la operadora se queda como web. El
+piloto arranca con el enlace web —pedirle a alguien que baje una app es donde
+más gente se cae— y la app se construye en paralelo. Consecuencia para el
+código: **todo lo que la clienta puede hacer vive en la API**, no en
+`public/alta/`. Esa carpeta es un cliente de esa API, y la app va a ser otro. Si
+una regla termina escrita sólo en JavaScript del navegador, la app nace sin
+ella.
+
 ---
 
 ## Identidad visual — manda sobre cualquier otra referencia de estilo
@@ -88,6 +97,7 @@ persona sí llevan acentos**.
 src/domain/     Lógica pura: sin base de datos, sin reloj, sin red
 src/modules/    Casos de uso con acceso a datos
 src/channels/   Lo que se puede cambiar de proveedor sin tocar el dominio
+                (WhatsApp, y quien lee el carnet)
 src/jobs/       Cola de trabajos y proceso trabajador
 src/http/       Rutas: capa delgada sobre los módulos
 public/         Interfaz del panel interno y el alta de la clienta
@@ -100,7 +110,7 @@ conviene poder probarlo sin levantar nada.
 
 ---
 
-## Cinco decisiones que no hay que deshacer sin querer
+## Seis decisiones que no hay que deshacer sin querer
 
 1. **Los recordatorios se calculan sobre la hora local de pared**, no restando
    horas al instante de la cita. RNF-02 pide que el cambio de horario no corra
@@ -116,13 +126,18 @@ conviene poder probarlo sin levantar nada.
 5. **Todo aviso lleva los cuatro datos**: qué servicio, cuándo, dónde y cuánto
    cuesta. Se verifica en código antes de enviar y hay una prueba que recorre
    todos los momentos.
+6. **Lo que se lee del carnet se propone, nunca se guarda solo.** El carnet es
+   una libreta escrita a mano y una fecha mal leída no se nota: se vuelve un
+   refuerzo programado para el año equivocado. La clienta revisa y confirma, y
+   se guarda lo que ella aprobó. `leer NO guarda nada` es una prueba con nombre
+   propio en `tests/integration/carnet.test.ts`.
 
 ---
 
 ## Antes de dar algo por terminado
 
 ```bash
-npm run verify     # typecheck + las 241 pruebas
+npm run verify     # typecheck + las 295 pruebas
 ```
 
 Las pruebas de integración corren contra un PostgreSQL de verdad (`huella_test`).

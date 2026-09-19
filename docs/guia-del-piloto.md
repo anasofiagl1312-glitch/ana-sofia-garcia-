@@ -86,6 +86,25 @@ Son cuatro pantallas, guardan paso por paso (si se sale, no pierde lo hecho):
 4. **Cómo te avisamos** — WhatsApp, correo o ambos, y a qué horas sí y a qué
    horas no.
 
+**El carnet se lee solo.** Cuando sube la foto, el sistema la lee y le propone
+todo lo que encontró: nombre, raza, sexo, nacimiento, peso, cada vacuna con su
+fecha y su refuerzo, y hasta el nombre de su veterinaria. Ella lo revisa,
+corrige lo que haga falta y le da Guardar.
+
+Tres cosas que vale la pena saber de eso:
+
+- **Nada se guarda hasta que ella confirma.** Es a propósito: el carnet está
+  escrito a mano y una fecha mal leída no se nota en la base, pero sí se nota
+  en pantalla, por la persona que sabe cuándo vacunaron a su perro. Una fecha
+  mal guardada se convierte en un refuerzo avisado el año equivocado.
+- **Lo que no se pudo leer se dice, con su razón.** «No se lee la fecha de
+  Desparasitación» es distinto de «no encontré nada»: en el primer caso ella
+  sabe qué completar.
+- **Cuesta unos centavos por foto.** Con veinte clientas de piloto y dos o tres
+  páginas cada una, son un par de dólares en total. Se enciende poniendo
+  `ANTHROPIC_API_KEY` en el `.env`; sin llave, el alta sigue funcionando y las
+  vacunas se capturan a mano.
+
 El token va en el fragmento de la URL (después del `#`), así que **nunca viaja al
 servidor ni queda en un log de accesos**. En cuanto la página lo lee, lo borra de
 la barra de direcciones.
@@ -164,6 +183,9 @@ Vale la pena tenerlo claro antes de enseñárselo a alguien:
 
 - **No envía solo.** Ni WhatsApp ni correo. El código para hacerlo está y está
   probado; lo que falta es la cuenta de Meta y las plantillas aprobadas.
+- **Todavía no hay app.** La clienta entra por el enlace, desde el navegador de
+  su teléfono. La app nativa —con cámara y notificaciones— se construye en
+  paralelo sobre esta misma API.
 - **No recibe respuestas.** Si la clienta contesta «mejor el jueves», te contesta
   a ti por WhatsApp, y eres tú quien reagenda en el panel.
 - **Corre en tu máquina.** Si apagas la computadora, el panel no está. La clienta
