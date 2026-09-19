@@ -11,6 +11,7 @@ import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import estaticos from '@fastify/static';
+import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import type pg from 'pg';
 import { ZodError } from 'zod';
@@ -27,7 +28,9 @@ import { TransicionInvalida } from '../domain/citas.js';
 import { TelefonoInvalido } from '../lib/telefono.js';
 import { CelularYaRegistrado, ClientaNoEncontrada } from '../modules/panel/alta.js';
 import { RutinaNoEncontrada } from '../modules/panel/citas.js';
+import { InvitacionInvalida } from '../modules/alta/invitaciones.js';
 import { AvisoIncompleto } from '../modules/mensajes/contenido.js';
+import { registrarRutasAlta } from './rutas/alta.js';
 import { registrarRutasAuth } from './rutas/auth.js';
 import { registrarRutasMascotas } from './rutas/mascotas.js';
 import { registrarRutasAgenda } from './rutas/agenda.js';
@@ -80,9 +83,41 @@ export async function crearServidor(servicios: Servicios): Promise<FastifyInstan
     list: false,
   });
 
+  /**
+   * La hoja de marca se sirve en una sola URL, compartida por el panel y por la
+   * interfaz de la clienta. Es el archivo donde viven todos los colores
+   * (CLAUDE.md): tenerlo en dos rutas distintas sería tenerlo dos veces.
+   */
+  const hojaDeMarca = fileURLToPath(new URL('../../public/marca.css', import.meta.url));
+  app.get('/marca.css', async (_peticion, respuesta) =>
+    respuesta.type('text/css').send(await readFile(hojaDeMarca, 'utf8')));
+
   // /panel y /panel/ entregan la interfaz.
   for (const ruta of ['/panel', '/panel/']) {
     app.get(ruta, async (_peticion, respuesta) => respuesta.sendFile('index.html'));
+  }
+
+  /**
+   * Interfaz de la clienta, en /alta.
+   *
+   * Se sirve desde el mismo lugar y con la misma marca. El token viaja en el
+   * fragmento de la URL (/alta#token), no en la ruta ni en la consulta: el
+   * fragmento no se manda al servidor ni queda en los registros de acceso.
+   */
+  await app.register(estaticos, {
+    root: fileURLToPath(new URL('../../public/alta', import.meta.url)),
+    prefix: '/alta/',
+    index: false,
+    list: false,
+    decorateReply: false,
+  });
+
+  // `decorateReply: false` arriba evita chocar con el sendFile del panel, así
+  // que esta página se lee del disco a mano.
+  const paginaAlta = fileURLToPath(new URL('../../public/alta/index.html', import.meta.url));
+  for (const ruta of ['/alta', '/alta/']) {
+    app.get(ruta, async (_peticion, respuesta) =>
+      respuesta.type('text/html').send(await readFile(paginaAlta, 'utf8')));
   }
 
   /**
@@ -124,6 +159,7 @@ export async function crearServidor(servicios: Servicios): Promise<FastifyInstan
     return { estado: 'ok' };
   });
 
+  await registrarRutasAlta(app, servicios);
   await registrarRutasAuth(app, servicios);
   await registrarRutasMascotas(app, servicios);
   await registrarRutasAgenda(app, servicios);
@@ -154,6 +190,9 @@ function mapearError(error: Error & { statusCode?: number }): number {
   if (error instanceof MascotaNoEncontrada) return 404;
   if (error instanceof ClientaNoEncontrada) return 404;
   if (error instanceof RutinaNoEncontrada) return 404;
+  // 410: el enlace existió y ya no sirve. Es lo que le pasa a la clienta que
+  // lo abre tarde, y el mensaje se lo explica.
+  if (error instanceof InvitacionInvalida) return 410;
   return 500;
 }
 
@@ -169,6 +208,7 @@ function nombreDeError(error: Error): string {
     MascotaNoEncontrada: 'no_encontrado',
     ClientaNoEncontrada: 'no_encontrado',
     RutinaNoEncontrada: 'no_encontrado',
+    InvitacionInvalida: 'enlace_vencido',
     AvisoIncompleto: 'aviso_incompleto',
   };
   return nombres[error.name] ?? 'error';

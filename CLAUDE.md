@@ -4,6 +4,13 @@ Asistente que agenda, recuerda y documenta el cuidado de una mascota.
 El alcance y el porqué de cada cosa están en `docs/requerimientos-v1.0.md`
 (documento de negocio v1.0) y en `docs/respuesta-tecnica.md`.
 
+**Hoy corre como piloto manual**: el sistema guarda todo y redacta cada aviso,
+pero quien crea las citas y aprieta «enviar» es la operadora, desde su propio
+WhatsApp y su propio correo. `docs/guia-del-piloto.md` es cómo se opera. Eso
+cambia qué se puede romper sin que nadie se dé cuenta: el panel es la única
+salida del producto, así que un aviso que no se puede copiar es un aviso que no
+existe.
+
 ---
 
 ## Identidad visual — manda sobre cualquier otra referencia de estilo
@@ -56,9 +63,10 @@ luz de día y a media calle: todo funciona a 400 px, los botones miden al menos
 44 px de alto, y el contraste manda sobre lo bonito (por eso el botón principal
 es tinta y no camello).
 
-> `docs/referencia-panel.html` es la referencia de **comportamiento**: de ahí se
-> copian estructura y textos, **no** los colores. A la fecha ese archivo todavía
-> no está en el repositorio; cuando llegue, alinear la interfaz a él.
+> `docs/referencia-panel.html` es la referencia de **comportamiento**: de ahí
+> salieron la estructura y los textos del panel, **no** los colores. El archivo
+> no está versionado (llegó como adjunto), así que la referencia viva hoy es
+> `public/` mismo: al cambiar la interfaz, se mantiene esa estructura.
 
 ---
 
@@ -82,7 +90,7 @@ src/modules/    Casos de uso con acceso a datos
 src/channels/   Lo que se puede cambiar de proveedor sin tocar el dominio
 src/jobs/       Cola de trabajos y proceso trabajador
 src/http/       Rutas: capa delgada sobre los módulos
-public/         Interfaz del panel interno
+public/         Interfaz del panel interno y el alta de la clienta
 db/migrations/  Esquema, en orden y solo hacia adelante
 ```
 
@@ -114,7 +122,7 @@ conviene poder probarlo sin levantar nada.
 ## Antes de dar algo por terminado
 
 ```bash
-npm run verify     # typecheck + las 147 pruebas
+npm run verify     # typecheck + las 233 pruebas
 ```
 
 Las pruebas de integración corren contra un PostgreSQL de verdad (`huella_test`).

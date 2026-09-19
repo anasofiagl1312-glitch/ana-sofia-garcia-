@@ -32,6 +32,9 @@ const esquemaProveedor = z.object({
   longitud: z.number().min(-180).max(180).nullish(),
   alias: z.string().trim().max(80).nullish(),
   notas: z.string().trim().max(500).nullish(),
+  // Qué es este negocio para ella. Vive en el vínculo y no en el proveedor,
+  // que es compartido entre clientas (sección 11).
+  relacion: z.enum(['veterinaria', 'estetica', 'guarderia', 'paseador', 'otro']).optional(),
 });
 
 const esquemaRutina = z.object({
@@ -82,6 +85,7 @@ export async function registrarRutasAgenda(app: FastifyInstance, s: Servicios): 
       const resultado = await registrarProveedorDeUsuaria(s.pool, peticion.usuariaId!, d, {
         alias: d.alias ?? null,
         notas: d.notas ?? null,
+        ...(d.relacion ? { relacion: d.relacion } : {}),
       });
       return respuesta.status(resultado.yaExistia ? 200 : 201).send(resultado);
     });
@@ -89,7 +93,7 @@ export async function registrarRutasAgenda(app: FastifyInstance, s: Servicios): 
     rutas.get('/proveedores', async (peticion) => {
       const { rows } = await s.pool.query(
         `SELECT p.id, p.negocio, p.sucursal, p.direccion, p.telefono, p.whatsapp,
-                p.canal_preferido, up.alias, up.notas
+                p.canal_preferido, up.alias, up.notas, up.relacion
            FROM usuaria_proveedor up JOIN proveedor p ON p.id = up.proveedor_id
           WHERE up.usuaria_id = $1
           ORDER BY p.negocio`,

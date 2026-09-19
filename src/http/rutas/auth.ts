@@ -33,6 +33,8 @@ const esquemaVerificacion = z.object({
 
 const esquemaPerfil = z.object({
   nombre: z.string().trim().min(1).max(80).nullish(),
+  correo: z.string().trim().email('Ese correo no se ve bien.').max(200).nullish(),
+  canalPreferido: z.enum(['whatsapp', 'correo', 'ambos']).optional(),
   zonaHoraria: z.string().optional(),
   horaAvisoDia: z.string().regex(/^\d{2}:\d{2}$/).optional(),
 });
@@ -115,15 +117,58 @@ export async function registrarRutasAuth(app: FastifyInstance, s: Servicios): Pr
       const datos = esquemaPerfil.parse(peticion.body);
       if (datos.zonaHoraria) validarZonaHoraria(datos.zonaHoraria);
 
-      await s.pool.query(
-        `UPDATE usuaria
-            SET nombre = COALESCE($2, nombre),
-                zona_horaria = COALESCE($3, zona_horaria),
-                hora_aviso_dia = COALESCE($4::time, hora_aviso_dia),
-                actualizada_en = now()
-          WHERE id = $1`,
-        [peticion.usuariaId, datos.nombre ?? null, datos.zonaHoraria ?? null, datos.horaAvisoDia ?? null],
-      );
+      // No se puede preferir el correo sin haberlo dado. La base también lo
+      // impide, pero ahí el error sería ilegible; aquí se dice qué falta.
+      if (datos.canalPreferido && datos.canalPreferido !== 'whatsapp') {
+        const yaTiene = datos.correo
+          ? true
+          : (
+              await s.pool.query<{ correo: string | null }>(`SELECT correo FROM usuaria WHERE id = $1`, [
+                peticion.usuariaId,
+              ])
+            ).rows[0]?.correo != null;
+
+        if (!yaTiene) {
+          throw Object.assign(
+            new Error('Para que te avisemos por correo necesitamos tu correo electrónico.'),
+            { statusCode: 400 },
+          );
+        }
+      }
+
+      try {
+        await s.pool.query(
+          `UPDATE usuaria
+              SET nombre = COALESCE($2, nombre),
+                  zona_horaria = COALESCE($3, zona_horaria),
+                  hora_aviso_dia = COALESCE($4::time, hora_aviso_dia),
+                  correo = COALESCE($5, correo),
+                  canal_preferido = COALESCE($6::canal_aviso, canal_preferido),
+                  actualizada_en = now()
+            WHERE id = $1`,
+          [
+            peticion.usuariaId,
+            datos.nombre ?? null,
+            datos.zonaHoraria ?? null,
+            datos.horaAvisoDia ?? null,
+            datos.correo ?? null,
+            datos.canalPreferido ?? null,
+          ],
+        );
+      } catch (error) {
+        // El correo es único entre clientas activas. Sin esto, dos personas de
+        // la misma casa poniendo el mismo correo se topan con un 500 opaco
+        // justo en el paso final de su alta, que es donde menos se puede
+        // pedir que alguien vuelva a intentar a ciegas.
+        if ((error as { code?: string }).code === '23505'
+          && (error as { constraint?: string }).constraint === 'usuaria_correo_unico') {
+          throw Object.assign(
+            new Error('Ese correo ya está registrado con otra cuenta. Usa otro, o escríbenos para juntarlas.'),
+            { statusCode: 409 },
+          );
+        }
+        throw error;
+      }
       return { actualizado: true };
     });
 

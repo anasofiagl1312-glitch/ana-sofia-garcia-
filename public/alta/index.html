@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="es-MX">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F3F0EB">
+<title>Huella — tus datos</title>
+
+<link rel="icon" href="/panel/icono.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500&family=Jost:wght@300;400;500;600&display=swap">
+
+<link rel="stylesheet" href="/marca.css">
+<link rel="stylesheet" href="/alta/alta.css">
+</head>
+<body>
+
+<header class="cabecera">
+  <h1 class="cabecera__marca">Huella</h1>
+  <p class="cabecera__nota" id="saludo">Tus datos</p>
+</header>
+
+<div class="progreso" id="progreso" hidden>
+  <ol class="progreso__pasos" id="progreso-pasos"></ol>
+</div>
+
+<main id="app">
+  <p class="cargando">Abriendo tu enlace…</p>
+</main>
+
+<footer class="pie">
+  <p>
+    Tus datos son tuyos. Puedes pedirnos que te los exportemos o que los
+    borremos cuando quieras, escribiéndonos por el mismo WhatsApp.
+  </p>
+</footer>
+
+<script src="/alta/alta.js"></script>
+</body>
+</html>

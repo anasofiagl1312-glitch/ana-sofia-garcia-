@@ -199,6 +199,8 @@ export interface FilaRecordatorioVencido {
   programado_para: Date;
   intentos: number;
   celular: string;
+  correo: string | null;
+  canal_preferido: 'whatsapp' | 'correo' | 'ambos';
   zona_horaria: string;
   estado_cita: EstadoCita;
   inicia_en: Date;
@@ -227,7 +229,7 @@ export interface FilaRecordatorioVencido {
 export const SQL_AVISO_COMPLETO = `
   SELECT r.id, r.cita_id, r.usuaria_id, r.momento, r.programado_para, r.intentos,
          r.estado, r.enviado_en,
-         u.celular, u.zona_horaria, u.nombre AS usuaria,
+         u.celular, u.correo, u.canal_preferido, u.zona_horaria, u.nombre AS usuaria,
          c.estado AS estado_cita, c.inicia_en, c.costo_confirmado, c.indicaciones,
          ts.nombre AS servicio,
          ts.articulo AS articulo_servicio,
@@ -262,7 +264,7 @@ async function reclamarVencidos(pool: pg.Pool, ahora: Date, limite: number): Pro
   return enTransaccion(pool, async (cliente) => {
     const { rows } = await cliente.query<FilaRecordatorioVencido>(
       `SELECT r.id, r.cita_id, r.usuaria_id, r.momento, r.programado_para, r.intentos,
-              u.celular, u.zona_horaria, u.nombre AS usuaria,
+              u.celular, u.correo, u.canal_preferido, u.zona_horaria, u.nombre AS usuaria,
               c.rutina_id, ru.frecuencia_cantidad, ru.frecuencia_unidad,
               c.estado AS estado_cita, c.inicia_en, c.costo_confirmado, c.indicaciones,
               ts.nombre AS servicio,

@@ -237,7 +237,9 @@
 
     var acciones = enviado
       ? '<span class="pill gris">Enviado</span>'
-      : '<button class="btn quiet" data-accion="enviado" data-arg="' + esc(a.id) + '">Marcar enviado</button>';
+      : '<button class="btn quiet" data-accion="enviado" data-arg="' + esc(a.id) +
+        '" data-canal="' + esc(a.canalPreferido === "correo" ? "correo" : "whatsapp") +
+        '">Marcar enviado</button>';
 
     if (a.momento === "cierre" && !enviado) {
       acciones += '<button class="btn quiet" data-accion="cumplida" data-arg="' + esc(a.citaId) + '">Marcar cumplida</button>';
@@ -248,9 +250,19 @@
         esc(kind) + (a.atrasado ? " · atrasado" : "") + "</span>" +
       "<h3>" + esc(a.clienta || "Sin nombre") + " · " + esc(a.mascota) + "</h3>" +
       '<p class="meta">' + esc(meta) + "</p>" +
+      (a.asunto && a.canalPreferido !== "whatsapp"
+        ? '<p class="meta"><b>Asunto:</b> ' + esc(a.asunto) + "</p>" : "") +
       '<div class="preview" id="prev-' + i + '">' + esc(a.texto) + "</div>" +
       '<div class="row">' +
-      '<a class="btn primary" target="_blank" rel="noopener" href="' + esc(a.enlaceWhatsApp) + '">Abrir WhatsApp</a>' +
+      // El botón principal es el canal que ella prefirió; el otro, si lo hay,
+      // queda al lado por si no contesta.
+      (a.canalPreferido === "correo" && a.enlaceCorreo
+        ? '<a class="btn primary" href="' + esc(a.enlaceCorreo) + '">Abrir correo</a>'
+        : '<a class="btn primary" target="_blank" rel="noopener" href="' + esc(a.enlaceWhatsApp) + '">Abrir WhatsApp</a>') +
+      (a.canalPreferido === "ambos" && a.enlaceCorreo
+        ? '<a class="btn" href="' + esc(a.enlaceCorreo) + '">Abrir correo</a>' : "") +
+      (a.canalPreferido === "correo" && a.enlaceCorreo
+        ? '<a class="btn" target="_blank" rel="noopener" href="' + esc(a.enlaceWhatsApp) + '">Abrir WhatsApp</a>' : "") +
       '<button class="btn" data-accion="copiar" data-arg="prev-' + i + '">Copiar</button>' +
       acciones + "</div></div>";
   }
@@ -328,13 +340,31 @@
           " · " + c.rutinasActivas + (c.rutinasActivas === 1 ? " rutina" : " rutinas") +
           (c.proximaFecha ? " · toca " + corto(c.proximaFecha) : "") + "</p></div>" +
         '<button class="btn quiet" data-accion="toggle" data-arg="' + esc(c.id) + '">' +
-          (abierta ? "Cerrar" : "Ver") + "</button></div>";
+          (abierta ? "Cerrar" : "Ver") + "</button></div>" +
+        '<div class="row" style="margin-top:10px">' +
+        '<button class="btn quiet" data-accion="invitar" data-arg="' + esc(c.id) + '">' +
+          (c.invitacion && c.invitacion.tiene ? "Nuevo enlace de alta" : "Enlace de alta") + "</button>" +
+        estadoDeInvitacion(c.invitacion) + "</div>";
 
       if (abierta) html += expediente(c.id);
       html += "</div>";
     });
 
     app.innerHTML = html;
+  }
+
+  /**
+   * Qué pasó con el enlace que se le mandó a la clienta.
+   *
+   * Se muestra porque es lo que dice si hay que insistirle: uno mandado y
+   * nunca abierto no es lo mismo que uno abierto y dejado a medias.
+   */
+  function estadoDeInvitacion(inv) {
+    if (!inv || !inv.tiene) return "";
+    if (inv.completadaEn) return '<span class="pill">Alta completada</span>';
+    if (inv.vencida) return '<span class="pill gris">Enlace vencido</span>';
+    if (inv.abiertaEn) return '<span class="pill">Lo abrió, sin terminar</span>';
+    return '<span class="pill gris">Enlace sin abrir</span>';
   }
 
   var ESTADO = {
@@ -691,6 +721,29 @@
 
     if (a === "toggle") { abiertas[arg] = !abiertas[arg]; return render(); }
 
+    if (a === "invitar") {
+      b.disabled = true;
+      b.setAttribute("aria-busy", "true");
+      pedir("/clientas/" + arg + "/invitacion", { method: "POST" })
+        .then(function (r) {
+          // Se copia solo: el siguiente paso de la operadora es pegarlo en el
+          // hilo de WhatsApp donde ya está hablando con ella.
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            return navigator.clipboard.writeText(r.enlace)
+              .then(function () { toast("Enlace copiado. Pégaselo por WhatsApp."); },
+                    function () { window.prompt("Copia este enlace y mándaselo:", r.enlace); });
+          }
+          window.prompt("Copia este enlace y mándaselo:", r.enlace);
+        })
+        .catch(function (err) { toast(err.message); })
+        .then(function () {
+          b.disabled = false;
+          b.removeAttribute("aria-busy");
+          cargar();
+        });
+      return;
+    }
+
     if (a === "copiar") {
       var el = document.getElementById(arg);
       if (!el) return;
@@ -708,7 +761,10 @@
       var texto = tarjeta ? tarjeta.querySelector(".preview").textContent : "";
       b.disabled = true;
       b.setAttribute("aria-busy", "true");
-      pedir("/avisos/" + arg + "/enviado", { method: "POST", body: { texto: texto } })
+      pedir("/avisos/" + arg + "/enviado", {
+        method: "POST",
+        body: { texto: texto, canal: b.dataset.canal || "whatsapp" }
+      })
         .then(function () { toast("Marcado como enviado"); cargar(); })
         .catch(function (err) {
           toast(err.message);

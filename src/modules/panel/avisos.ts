@@ -18,6 +18,7 @@ import {
   opcionesParaAviso,
 } from '../recordatorios/servicio.js';
 import { redactarAviso } from '../mensajes/contenido.js';
+import { avisoPorCorreo, enlaceCorreo } from '../mensajes/correo.js';
 import type { MomentoRecordatorio } from '../../domain/agenda.js';
 import { hora } from '../mensajes/formato.js';
 
@@ -38,8 +39,16 @@ export interface AvisoDelDia {
   proveedor: string;
   /** El texto exacto que debe recibir la clienta. */
   texto: string;
+  /** Cómo prefiere que le avisen: por WhatsApp, por correo o por los dos. */
+  canalPreferido: 'whatsapp' | 'correo' | 'ambos';
   /** Abre WhatsApp con el texto ya escrito. */
   enlaceWhatsApp: string;
+  /** Su correo, si lo dio. */
+  correo: string | null;
+  /** Asunto del correo; WhatsApp no lo necesita. */
+  asunto: string | null;
+  /** Abre el cliente de correo con todo puesto. `null` si no dio correo. */
+  enlaceCorreo: string | null;
   /** Solo si el aviso no se pudo redactar; nunca debería pasar. */
   problema: string | null;
 }
@@ -122,17 +131,24 @@ export async function avisosDelDia(
         fila.programado_para.getTime() < ahora.getTime(),
       clienta: fila.usuaria,
       celular: fila.celular,
+      correo: fila.correo,
+      canalPreferido: fila.canal_preferido,
       mascota: fila.mascota,
       servicio: fila.servicio,
       proveedor: fila.proveedor,
     };
 
     try {
-      const aviso = redactarAviso(fila.momento, datosDeAviso(fila), opcionesParaAviso(fila));
+      const datos = datosDeAviso(fila);
+      const aviso = redactarAviso(fila.momento, datos, opcionesParaAviso(fila));
+      const porCorreo = fila.correo ? avisoPorCorreo(fila.momento, datos, aviso.texto) : null;
+
       return {
         ...base,
         texto: aviso.texto,
         enlaceWhatsApp: enlaceWhatsApp(fila.celular, aviso.texto),
+        asunto: porCorreo?.asunto ?? null,
+        enlaceCorreo: porCorreo ? enlaceCorreo(fila.correo!, porCorreo) : null,
         problema: null,
       };
     } catch (error) {
@@ -142,6 +158,8 @@ export async function avisosDelDia(
         ...base,
         texto: '',
         enlaceWhatsApp: '',
+        asunto: null,
+        enlaceCorreo: null,
         problema: error instanceof Error ? error.message : String(error),
       };
     }
@@ -159,16 +177,19 @@ export async function avisosDelDia(
 export async function marcarEnviadoAMano(
   pool: pg.Pool,
   recordatorioId: string,
-  opciones: { texto: string; operadorId: string; ahora?: Date },
+  opciones: { texto: string; operadorId: string; canal?: 'whatsapp' | 'correo'; ahora?: Date },
 ): Promise<boolean> {
   const ahora = opciones.ahora ?? new Date();
+  // Queda anotado por dónde salió: al cabo del piloto eso dice qué canal usan
+  // de verdad las clientas, que es una de las cosas que el piloto va a medir.
+  const canal = `${opciones.canal ?? 'whatsapp'}_manual`;
 
   const { rows } = await pool.query<{ programado_para: Date }>(
     `UPDATE recordatorio
         SET estado = 'enviado',
             enviado_en = $2,
             contenido_enviado = $3,
-            canal = 'whatsapp_manual',
+            canal = $4,
             intentos = intentos + 1,
             retraso_segundos = GREATEST(0, EXTRACT(EPOCH FROM ($2 - programado_para))::int),
             ultimo_error = NULL,
@@ -176,7 +197,7 @@ export async function marcarEnviadoAMano(
       WHERE id = $1
         AND estado IN ('programado', 'fallido', 'enviando')
       RETURNING programado_para`,
-    [recordatorioId, ahora, opciones.texto],
+    [recordatorioId, ahora, opciones.texto, canal],
   );
 
   if (rows.length === 0) return false;
@@ -184,7 +205,7 @@ export async function marcarEnviadoAMano(
   await pool.query(
     `INSERT INTO bitacora_agente (accion, detalle)
      VALUES ('aviso_enviado_a_mano', $1)`,
-    [JSON.stringify({ recordatorioId, operadorId: opciones.operadorId })],
+    [JSON.stringify({ recordatorioId, operadorId: opciones.operadorId, canal })],
   );
 
   return true;

@@ -83,7 +83,10 @@ h1 {
 .salir {
   background: none;
   border: 0;
-  padding: 0 0 0 10px;
+  /* Se ve chiquito, pero se toca grande: el relleno sube el área a 44 px y el
+     margen negativo la devuelve a su lugar, para que el encabezado no crezca. */
+  padding: 16px 2px 16px 12px;
+  margin: -16px -2px -16px 0;
   font-family: inherit;
   font-size: 10.5px;
   font-weight: 500;
@@ -176,7 +179,12 @@ main {
   margin: 0 0 10px;
 }
 
-/* El mensaje tal cual lo va a leer la clienta. */
+/* El mensaje tal cual lo va a leer la clienta.
+ *
+ * Sin recortar: con un alto máximo, el precio y la línea de REAGENDAR quedaban
+ * fuera de cuadro y había que adivinar que la caja tenía scroll propio. Se lee
+ * para decidir si mandarlo, así que se ve completo. Caben: son cuerpos de
+ * plantilla de WhatsApp, cortos por definición. */
 .preview {
   background: var(--warm);
   border-left: 2px solid var(--rule-firm);
@@ -184,8 +192,6 @@ main {
   font-size: 14px;
   white-space: pre-wrap;
   margin: 0 0 12px;
-  max-height: 120px;
-  overflow: auto;
   color: var(--ink);
 }
 

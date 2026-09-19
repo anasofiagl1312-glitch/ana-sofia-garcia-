@@ -74,10 +74,14 @@ export async function registrarRutasMascotas(app: FastifyInstance, s: Servicios)
                 peso_kg = COALESCE($5, peso_kg),
                 esterilizada = COALESCE($6, esterilizada),
                 notas_manejo = COALESCE($7, notas_manejo),
+                especie = COALESCE($8::especie, especie),
+                sexo = COALESCE($9::sexo_mascota, sexo),
+                nacimiento = COALESCE($10::date, nacimiento),
                 actualizada_en = now()
           WHERE id = $1 AND usuaria_id = $2`,
         [id, peticion.usuariaId, d.nombre ?? null, d.raza ?? null, d.pesoKg ?? null,
-         d.esterilizada ?? null, d.notasManejo ?? null],
+         d.esterilizada ?? null, d.notasManejo ?? null,
+         d.especie ?? null, d.sexo ?? null, d.nacimiento ?? null],
       );
       if (rowCount === 0) throw Object.assign(new Error('No se encontró la mascota.'), { statusCode: 404 });
       return { actualizado: true };

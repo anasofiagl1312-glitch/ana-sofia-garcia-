@@ -12,6 +12,7 @@ const esquema = z.object({
   DATABASE_URL_TEST: z.string().optional(),
 
   DEFAULT_TIMEZONE: z.string().default('America/Mexico_City'),
+  URL_PUBLICA: z.string().url().optional(),
 
   ENCRYPTION_KEY: z.string().optional(),
 
@@ -35,6 +36,8 @@ export interface Config {
   nivelLog: string;
   databaseUrl: string;
   zonaHorariaPorDefecto: string;
+  /** De dónde cuelga el enlace de alta que se le manda a la clienta. */
+  urlPublica: string | undefined;
   llaveCifrado: string | undefined;
   whatsapp: {
     driver: 'fake' | 'meta';
@@ -67,6 +70,7 @@ export function cargarConfig(env: NodeJS.ProcessEnv = process.env): Config {
     nivelLog: parsed.LOG_LEVEL,
     databaseUrl,
     zonaHorariaPorDefecto: parsed.DEFAULT_TIMEZONE,
+    urlPublica: parsed.URL_PUBLICA,
     llaveCifrado: parsed.ENCRYPTION_KEY,
     whatsapp: {
       driver: parsed.WHATSAPP_DRIVER,

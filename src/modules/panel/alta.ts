@@ -21,6 +21,7 @@ import { normalizarTelefono } from '../../lib/telefono.js';
 import { sumarFrecuencia, validarZonaHoraria } from '../../domain/tiempo.js';
 import { registrarProveedorDeUsuaria } from '../proveedores/servicio.js';
 import { iniciarSuscripcion, type Pasarela } from '../suscripcion/servicio.js';
+import { type EstadoDeInvitacion, estadoDeInvitacion } from '../alta/invitaciones.js';
 
 export interface DatosAltaClienta {
   clienta: {
@@ -213,6 +214,8 @@ export interface ClientaEnLista {
   rutinasActivas: number;
   proximaFecha: string | null;
   creadaEn: Date;
+  /** Si ya se le mandó el enlace de alta, si lo abrió y si lo terminó. */
+  invitacion: EstadoDeInvitacion;
 }
 
 export async function listarClientas(pool: pg.Pool): Promise<ClientaEnLista[]> {
@@ -231,18 +234,21 @@ export async function listarClientas(pool: pg.Pool): Promise<ClientaEnLista[]> {
       ORDER BY u.creada_en DESC`,
   );
 
-  return rows.map((r) => ({
-    id: r.id,
-    nombre: r.nombre,
-    celular: r.celular,
-    celularVerificado: r.celular_verificado,
-    estado: r.estado,
-    zonaHoraria: r.zona_horaria,
-    mascotas: r.mascotas,
-    rutinasActivas: r.rutinas_activas,
-    proximaFecha: r.proxima_fecha,
-    creadaEn: r.creada_en,
-  }));
+  return Promise.all(
+    rows.map(async (r) => ({
+      id: r.id,
+      nombre: r.nombre,
+      celular: r.celular,
+      celularVerificado: r.celular_verificado,
+      estado: r.estado,
+      zonaHoraria: r.zona_horaria,
+      mascotas: r.mascotas,
+      rutinasActivas: r.rutinas_activas,
+      proximaFecha: r.proxima_fecha,
+      creadaEn: r.creada_en,
+      invitacion: await estadoDeInvitacion(pool, r.id),
+    })),
+  );
 }
 
 // ---------------------------------------------------------------------------

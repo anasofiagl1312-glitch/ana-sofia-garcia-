@@ -20,6 +20,7 @@ import { borrarDatosDeUsuaria, exportarDatos } from '../../modules/privacidad/se
 import { conBitacora } from '../../modules/panel/servicio.js';
 import { altaDeClienta, detalleDeClienta, listarClientas } from '../../modules/panel/alta.js';
 import { crearCitaDesdePanel, rutinasParaElegir } from '../../modules/panel/citas.js';
+import { crearInvitacion } from '../../modules/alta/invitaciones.js';
 import { avisosDelDia, marcarEnviadoAMano } from '../../modules/panel/avisos.js';
 import { numerosDelPiloto } from '../../modules/panel/numeros.js';
 import { cerrarCita } from '../../modules/agendamiento/servicio.js';
@@ -173,6 +174,35 @@ export async function registrarRutasPanel(app: FastifyInstance, s: Servicios): P
         ),
       }));
 
+      /**
+       * Enlace para que la clienta llene sus propios datos.
+       *
+       * Se devuelve el enlace completo, listo para pegar en el hilo de
+       * WhatsApp donde la operadora ya está hablando con ella. El token va en
+       * el fragmento (#) porque así no viaja al servidor ni queda en los
+       * registros de acceso de ningún intermediario.
+       */
+      panel.post('/clientas/:id/invitacion', async (peticion) => {
+        const { id } = z.object({ id: z.string().uuid() }).parse(peticion.params);
+
+        const invitacion = await conBitacora(
+          s.pool,
+          peticion.operador!,
+          'alta_clienta',
+          { accion: 'modificacion', entidad: 'invitacion', usuariaAfectadaId: id },
+          () => crearInvitacion(s.pool, id, { operadorId: peticion.operador!.id }),
+        );
+
+        const base =
+          s.config.urlPublica ??
+          `${peticion.protocol}://${peticion.headers.host ?? `localhost:${s.config.puerto}`}`;
+
+        return {
+          enlace: `${base}/alta#${invitacion.token}`,
+          expiraEn: invitacion.expiraEn,
+        };
+      });
+
       /** Expediente de una clienta: sus mascotas, sus rutinas y sus últimas citas. */
       panel.get('/clientas/:id', async (peticion) => {
         const { id } = z.object({ id: z.string().uuid() }).parse(peticion.params);
@@ -188,14 +218,19 @@ export async function registrarRutasPanel(app: FastifyInstance, s: Servicios): P
       /** La operadora mandó el aviso a mano desde su WhatsApp (Fase 1). */
       panel.post('/avisos/:id/enviado', async (peticion) => {
         const { id } = z.object({ id: z.string().uuid() }).parse(peticion.params);
-        const { texto } = z.object({ texto: z.string().min(1) }).parse(peticion.body);
+        const { texto, canal } = z
+          .object({
+            texto: z.string().min(1),
+            canal: z.enum(['whatsapp', 'correo']).default('whatsapp'),
+          })
+          .parse(peticion.body);
 
         const marcado = await conBitacora(
           s.pool,
           peticion.operador!,
           'ver_bandeja',
-          { accion: 'modificacion', entidad: 'recordatorio', entidadId: id },
-          () => marcarEnviadoAMano(s.pool, id, { texto, operadorId: peticion.operador!.id }),
+          { accion: 'modificacion', entidad: 'recordatorio', entidadId: id, detalle: { canal } },
+          () => marcarEnviadoAMano(s.pool, id, { texto, canal, operadorId: peticion.operador!.id }),
         );
 
         if (!marcado) {

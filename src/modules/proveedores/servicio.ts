@@ -42,7 +42,7 @@ export async function registrarProveedorDeUsuaria(
   ejecutor: Ejecutor,
   usuariaId: string,
   datos: AltaProveedor,
-  opciones: { alias?: string | null; notas?: string | null } = {},
+  opciones: { alias?: string | null; notas?: string | null; relacion?: string } = {},
 ): Promise<ProveedorRegistrado> {
   const clave = claveDedup(datos);
   const telefono = normalizarTelefonoOpcional(datos.telefono);
@@ -77,12 +77,14 @@ export async function registrarProveedorDeUsuaria(
   const proveedor = rows[0]!;
 
   await ejecutor.query(
-    `INSERT INTO usuaria_proveedor (usuaria_id, proveedor_id, alias, notas)
-     VALUES ($1,$2,$3,$4)
+    `INSERT INTO usuaria_proveedor (usuaria_id, proveedor_id, alias, notas, relacion)
+     VALUES ($1,$2,$3,$4,COALESCE($5,'otro'))
      ON CONFLICT (usuaria_id, proveedor_id) DO UPDATE
         SET alias = COALESCE(EXCLUDED.alias, usuaria_proveedor.alias),
-            notas = COALESCE(EXCLUDED.notas, usuaria_proveedor.notas)`,
-    [usuariaId, proveedor.id, opciones.alias ?? null, opciones.notas ?? null],
+            notas = COALESCE(EXCLUDED.notas, usuaria_proveedor.notas),
+            relacion = CASE WHEN EXCLUDED.relacion = 'otro' THEN usuaria_proveedor.relacion
+                            ELSE EXCLUDED.relacion END`,
+    [usuariaId, proveedor.id, opciones.alias ?? null, opciones.notas ?? null, opciones.relacion ?? null],
   );
 
   return {
