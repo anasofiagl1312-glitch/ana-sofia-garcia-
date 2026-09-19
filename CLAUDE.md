@@ -122,7 +122,7 @@ conviene poder probarlo sin levantar nada.
 ## Antes de dar algo por terminado
 
 ```bash
-npm run verify     # typecheck + las 235 pruebas
+npm run verify     # typecheck + las 241 pruebas
 ```
 
 Las pruebas de integración corren contra un PostgreSQL de verdad (`huella_test`).

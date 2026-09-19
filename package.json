@@ -8,6 +8,7 @@
     "node": ">=22"
   },
   "scripts": {
+    "empezar": "node scripts/empezar.mjs",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/main.ts",

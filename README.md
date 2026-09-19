@@ -43,11 +43,19 @@ Hace falta **Node 22+** y **PostgreSQL 16+**.
 
 ```bash
 npm install
+npm run empezar
+```
+
+`npm run empezar` deja todo listo: crea el `.env`, genera la llave con la que se
+cifran los carnets, encuentra tu PostgreSQL —probando primero tu usuario de la
+Mac, que es como queda instalado con Homebrew—, crea las dos bases, aplica las
+migraciones y siembra datos de ejemplo. Si algo falta, dice qué teclear.
+
+A mano, si prefieres verlo paso por paso:
+
+```bash
 cp .env.example .env
-
-# Una llave de 32 bytes para cifrar los documentos (RNF-06)
-echo "ENCRYPTION_KEY=$(openssl rand -base64 32)" >> .env
-
+echo "ENCRYPTION_KEY=$(openssl rand -base64 32)" >> .env   # 32 bytes, RNF-06
 createdb huella && createdb huella_test
 npm run migrate
 npm run seed        # datos de ejemplo: Ana, su perra Lola y Petco Polanco
@@ -60,13 +68,22 @@ npm run dev         # API HTTP
 npm run worker      # barridos: recordatorios, rutinas y refuerzos
 ```
 
+Con `npm run dev` corriendo, el panel interno queda en
+**http://localhost:3000/panel/** (`operadora@huella.mx` / `huella`). Es un
+servidor local: si cierras esa terminal, el navegador dice «no se puede acceder
+a este sitio».
+
+En el piloto manual el trabajador no hace falta —sirve para enviar solo, y ahí
+no se envía solo—; el panel lee directo de la tabla `recordatorio`. Cómo se
+opera está en **[docs/guia-del-piloto.md](docs/guia-del-piloto.md)**.
+
 El trabajador corre aparte para que una avalancha de peticiones no retrase un
 recordatorio (RNF-03), y para poder escalarlo por su cuenta.
 
 ### Pruebas
 
 ```bash
-npm test            # 147 pruebas
+npm test            # 241 pruebas
 npm run typecheck
 ```
 

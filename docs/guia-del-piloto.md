@@ -14,9 +14,18 @@ que Meta apruebe nada.
 
 ```bash
 npm install                 # sólo la primera vez
-npm run migrate             # sólo la primera vez, o cuando haya migraciones nuevas
-npm run dev
+npm run empezar             # sólo la primera vez: deja todo listo
+npm run dev                 # esto sí, cada vez que quieras usarlo
 ```
+
+`npm run empezar` crea el archivo de configuración, genera la llave con la que
+se cifran los carnets, encuentra tu PostgreSQL, crea las bases y las siembra. Si
+algo falta —PostgreSQL apagado, por ejemplo— te dice qué teclear.
+
+**El servidor corre en tu computadora.** Mientras `npm run dev` esté corriendo
+en esa terminal, el panel está; si la cierras o apagas la máquina, el navegador
+dice «no se puede acceder a este sitio» y la clienta no puede abrir su enlace de
+alta.
 
 Y en tu navegador:
 
