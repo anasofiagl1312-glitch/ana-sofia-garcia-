@@ -24,6 +24,8 @@
   var LLAVE = "huella.credencial";
 
   var credencial = null;
+  /* Si ya entró o sigue en la pantalla de acceso. Cambia qué significa un 401. */
+  var dentro = false;
   var tab = "hoy";
   var datos = { avisos: null, clientas: null, citas: null, numeros: null, rutinas: null };
   var detalles = {};      // expediente de cada clienta, ya traído
@@ -125,9 +127,24 @@
       method: opciones.method || "GET",
       headers: cabeceras,
       body: opciones.body ? JSON.stringify(opciones.body) : undefined
+    }).catch(function () {
+      // fetch solo se rompe así cuando no hay nadie del otro lado. Decirlo,
+      // porque "Failed to fetch" no le dice a nadie qué hacer.
+      throw new Error("No encontré el servidor en " + window.location.origin +
+        ". Revisa que «npm run dev» siga corriendo en la terminal.");
     }).then(function (r) {
-      if (r.status === 401) { salir(); throw new Error("La sesión se cerró."); }
       return r.json().catch(function () { return {}; }).then(function (cuerpo) {
+        if (r.status === 401) {
+          // Solo se cierra la sesión si había una. Durante el acceso, un 401 es
+          // la respuesta a lo que acaba de teclear, no una sesión que se venció:
+          // sacarla a la pantalla de acceso donde ya está, y encima decirle que
+          // "la sesión se cerró", no explica nada.
+          if (dentro) {
+            salir();
+            throw new Error("La sesión se cerró. Vuelve a entrar.");
+          }
+          throw new Error(cuerpo.mensaje || "Credencial inválida.");
+        }
         if (!r.ok) {
           var detalle = cuerpo.detalles
             ? cuerpo.detalles.map(function (d) { return d.campo + ": " + d.mensaje; }).join(" · ")
@@ -156,6 +173,7 @@
 
   function salir() {
     credencial = null;
+    dentro = false;
     try { sessionStorage.removeItem(LLAVE); } catch (e) { /* nada */ }
     datos = { avisos: null, clientas: null, citas: null, numeros: null };
     panel.hidden = true;
@@ -163,6 +181,7 @@
   }
 
   function mostrarPanel() {
+    dentro = true;
     acceso.hidden = true;
     panel.hidden = false;
     cargar();
@@ -686,9 +705,10 @@
     entrar(document.getElementById("correo").value.trim(),
            document.getElementById("clave").value)
       .catch(function (err) {
-        caja.textContent = err.message === "Credencial inválida."
-          ? "Ese correo y contraseña no coinciden."
-          : err.message;
+        // El mensaje viene del servidor tal cual: sabe distinguir entre una
+        // contraseña que no coincide y una base sin sembrar, y esa diferencia
+        // es justo la que desatora.
+        caja.textContent = err.message;
         caja.hidden = false;
       })
       .then(function () {

@@ -99,6 +99,28 @@ describe('todas las rutas del panel responden', () => {
     expect((await pedir(ruta, { sinCredencial: true })).statusCode).toBe(401);
   });
 
+  it('una contraseña equivocada dice que no coincide', async () => {
+    const mala = Buffer.from('operadora@huella.mx:otra').toString('base64');
+    const r = await app.inject({
+      method: 'GET', url: '/panel/api/numeros', headers: { authorization: `Bearer ${mala}` },
+    });
+
+    expect(r.statusCode).toBe(401);
+    expect(JSON.parse(r.body).mensaje).toBe('Ese correo y contraseña no coinciden.');
+  });
+
+  it('una base sin sembrar dice que corra npm run seed', async () => {
+    // Es el primer tropiezo de quien abre el panel por primera vez, y desde
+    // fuera se ve idéntico a una contraseña mal escrita: se busca la falla en
+    // el lugar equivocado.
+    await pool.query(`DELETE FROM usuario_interno`);
+
+    const r = await pedir('/panel/api/numeros');
+
+    expect(r.statusCode).toBe(401);
+    expect(JSON.parse(r.body).mensaje).toContain('npm run seed');
+  });
+
   it('la interfaz se sirve en /panel y no la tapa la API', async () => {
     const pagina = await pedir('/panel', { sinCredencial: true });
     expect(pagina.statusCode).toBe(200);

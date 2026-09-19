@@ -51,12 +51,28 @@ async function autenticarOperador(s: Servicios, peticion: FastifyRequest): Promi
     [correo],
   );
   const usuario = rows[0];
-  if (!usuario) throw Object.assign(new Error('Credencial inválida.'), { statusCode: 401 });
+  if (!usuario) {
+    // Si no hay NINGUNA usuaria del panel, no es que se haya equivocado de
+    // contraseña: es que la base está recién creada. Decirlo ahorra buscar la
+    // falla en el lugar equivocado. El panel es una herramienta interna que
+    // corre en la máquina de quien lo opera, así que no hay a quién delatarle
+    // nada con esto.
+    const { rows: cuantas } = await s.pool.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM usuario_interno WHERE activo`,
+    );
+    if (cuantas[0]?.n === '0') {
+      throw Object.assign(
+        new Error('Todavía no hay ninguna usuaria del panel en esta base. Corre «npm run seed».'),
+        { statusCode: 401 },
+      );
+    }
+    throw Object.assign(new Error('Ese correo y contraseña no coinciden.'), { statusCode: 401 });
+  }
 
   const esperado = Buffer.from(usuario.contrasena_hash, 'hex');
   const recibido = createHash('sha256').update(secreto).digest();
   if (esperado.length !== recibido.length || !timingSafeEqual(esperado, recibido)) {
-    throw Object.assign(new Error('Credencial inválida.'), { statusCode: 401 });
+    throw Object.assign(new Error('Ese correo y contraseña no coinciden.'), { statusCode: 401 });
   }
 
   return { id: usuario.id, nombre: usuario.nombre, rol: usuario.rol };
